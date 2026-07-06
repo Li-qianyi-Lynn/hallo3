@@ -1,3 +1,4 @@
-A young woman with a hat in the snow@@my_inference/images/woman_snow.jpg@@my_inference/audios/H2.wav
-A young woman with a hat in the snow@@my_inference/images/woman_snow.jpg@@my_inference/audios/H3.wav
-A young woman with a hat in the snow@@my_inference/images/woman_snow.jpg@@my_inference/audios/H4_menggu.wav
+A young woman sitting near the sea@@my_inference/images/woman_sea.jpg@@my_inference/audios/H1.wav
+A young woman sitting near the sea@@my_inference/images/woman_sea.jpg@@my_inference/audios/H2.wav
+A young woman sitting near the sea@@my_inference/images/woman_sea.jpg@@my_inference/audios/H3.wav
+A young woman sitting near the sea@@my_inference/images/woman_sea.jpg@@my_inference/audios/H4_menggu.wav
