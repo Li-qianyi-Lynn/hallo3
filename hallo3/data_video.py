@@ -404,8 +404,13 @@ class VideoDataset(MetaDistributedWebDataset):
         return cls(path, **kwargs)
 
 
+# ============================================================
+# SFTDataset — Stage 1 训练数据集
+# 作用：从视频文件中读取帧 + 人脸 embedding，返回训练用的一条数据
+# Stage 1 只需要视频和人脸，不需要音频（Stage 2 才加音频）
+# ============================================================
 class SFTDataset(Dataset):
-    def __init__(self, data_meta_path, video_size, fps, max_num_frames, 
+    def __init__(self, data_meta_path, video_size, fps, max_num_frames,
                  frame_interval=1,
                  skip_frms_num=3,
                  audio_margin=2,
@@ -413,205 +418,227 @@ class SFTDataset(Dataset):
                  model_scale="base",
                  features="all"):
         """
-        skip_frms_num: ignore the first and the last xx frames, avoiding transitions.
+        data_meta_path: json 文件路径，里面是所有训练视频的元信息列表
+        video_size:     训练分辨率 [H, W]，如 [480, 720]
+        fps:            训练用的帧率，如 8fps
+        max_num_frames: 每个样本取多少帧，如 49 帧（约 6 秒）
+        frame_interval: 每隔几帧取一帧（=1 表示连续取，=2 表示隔帧取）
+        skip_frms_num:  跳过视频首尾各几帧，避免场景切换、黑屏等噪声
         """
         super(SFTDataset, self).__init__()
 
-        self.video_size = video_size
-        self.fps = fps
-        self.max_num_frames = max_num_frames
-        self.skip_frms_num = skip_frms_num
+        # 把参数存到 self 上，__getitem__ 里会用到
+        self.video_size = video_size        # 目标分辨率
+        self.fps = fps                      # 目标帧率
+        self.max_num_frames = max_num_frames # 每样本帧数
+        self.skip_frms_num = skip_frms_num  # 首尾跳过帧数
 
-        self.audio_margin = audio_margin
+        self.audio_margin = audio_margin    # Stage 1 暂时用不到，Stage 2 才用
         self.audio_type = audio_type
         self.audio_model = model_scale
         self.audio_features = features
         self.frame_interval = frame_interval
 
+        # 读取 json 元数据文件，得到所有视频的路径、caption 等信息
         vid_meta = []
-        # for data_meta_path in data_meta_paths:
         with open(data_meta_path, "r", encoding="utf-8") as f:
-            vid_meta.extend(json.load(f))
+            vid_meta.extend(json.load(f))   # json 是个列表，每个元素是一条视频的信息
         self.vid_meta = vid_meta
-        self.length = len(self.vid_meta)
-        
-        self.to_tensor = TT.ToTensor()
-        self.latent_size = [60, 90]
-    
+        self.length = len(self.vid_meta)    # 数据集大小 = 视频条数
+
+        self.to_tensor = TT.ToTensor()      # 把 PIL Image 转成 Tensor 的工具
+        self.latent_size = [60, 90]         # VAE 压缩后的 latent 空间大小（备用）
+
     def get_mask(self, mask_bbox, video_size, h, w):
+        """
+        根据人脸 bbox（比例坐标）生成一张人脸区域 mask（1=人脸，0=背景）
+        mask_bbox: [x_min, y_min, x_max, y_max]，值是 0~1 的比例
+        返回 shape: [1, 1, H, W]
+        """
+        # 把比例坐标换算成像素坐标
         x_min_ratio, y_min_ratio = mask_bbox[0], mask_bbox[1]
         x_max_ratio, y_max_ratio = mask_bbox[2], mask_bbox[3]
         x_min = int(x_min_ratio * w)
         y_min = int(y_min_ratio * h)
         x_max = int(x_max_ratio * w)
         y_max = int(y_max_ratio * h)
-        
+
+        # 创建全零 mask，再把人脸区域设为 1
         mask = torch.zeros((h, w), dtype=torch.uint8)
         mask[y_min:y_max, x_min:x_max] = 1
-        mask = mask.unsqueeze(0).unsqueeze(0)
-        mask = resize_only(mask, video_size)
-        
+        mask = mask.unsqueeze(0).unsqueeze(0)   # [H,W] → [1,1,H,W]，加上 batch 和 channel 维度
+        mask = resize_only(mask, video_size)    # 缩放到训练分辨率
+
         return mask
 
 
     def __getitem__(self, index):
-        decord.bridge.set_bridge("torch")
+        """
+        PyTorch DataLoader 调用这个函数取第 index 条数据
+        返回一个 dict，包含：视频帧、文本 caption、参考图、人脸 embedding、人脸 mask
+        """
+        decord.bridge.set_bridge("torch")  # 让 decord 直接返回 torch.Tensor，省去转换
 
+        video_meta = self.vid_meta[index]  # 取第 index 条视频的元信息
 
-        video_meta = self.vid_meta[index]
-        
+        # ---- 分支 1：元数据里有 bbox（人脸框 json 文件路径）----
+        # 这种格式的 bbox 是每帧都有一个人脸框，更精准
         if "bbox" in video_meta.keys():
-                    
-            video_path = video_meta["video_path"]
 
-            face_emb_path = video_meta["face_emb_path"]
-            caption = str(video_meta["caption"])
-            
+            video_path = video_meta["video_path"]       # 视频文件路径
+            face_emb_path = video_meta["face_emb_path"] # 人脸 embedding .pt 文件路径
+            caption = str(video_meta["caption"])         # 文本描述
+
+            # 读取 bbox json：里面是每一帧对应的人脸框坐标列表
             mask_json = video_meta["bbox"]
             with open(mask_json, 'r', encoding='utf-8') as f:
                 bbox = json.load(f)
-            
+
+            # 加载人脸 embedding（预先用人脸模型提取好存成 .pt 文件）
             face_emb = torch.load(face_emb_path)
             if not isinstance(face_emb, torch.Tensor):
-                face_emb = torch.tensor(face_emb)
+                face_emb = torch.tensor(face_emb)  # 兼容 numpy array 格式
 
+            # 用 decord 打开视频，不指定分辨率（保持原始大小）
             vr = VideoReader(uri=video_path, height=-1, width=-1)
-            ori_vlen = len(vr)
-            
+            ori_vlen = len(vr)  # 视频总帧数
+
+            # 需要连续读取的帧数（考虑 frame_interval 跳帧）
             sample_len = self.max_num_frames * self.frame_interval
 
+            # 确保视频够长，不然没法取 max_num_frames 帧
             assert ori_vlen > sample_len, video_path
-            start = random.randint(
-                    0, 
-                    ori_vlen - sample_len - 1
-                )
-            
+
+            # 随机选一个起始帧（数据增强：每次训练取的片段不一样）
+            start = random.randint(0, ori_vlen - sample_len - 1)
+
             end = min(start + self.max_num_frames * self.frame_interval, ori_vlen)
+            # ori_indices：按 frame_interval 间隔采样的帧编号（在原始视频中的绝对位置）
             ori_indices = np.arange(start, end, self.frame_interval).astype(int)
+            # 读取 [start, end) 范围内的所有帧（连续读取更高效）
             temp_frms = vr.get_batch(np.arange(start, end))
             assert temp_frms is not None
             tensor_frms = torch.from_numpy(temp_frms) if type(temp_frms) is not torch.Tensor else temp_frms
-            
-            ori_indices = torch.from_numpy(ori_indices)
-            new_indices = torch.tensor((ori_indices - start).tolist())
-            tensor_frms = tensor_frms[new_indices]
 
-            ref_idx = random.randint(
-                    0, 
-                    ori_vlen-1
-                )
-            
+            # 从连续帧中按 frame_interval 挑选目标帧
+            ori_indices = torch.from_numpy(ori_indices)
+            new_indices = torch.tensor((ori_indices - start).tolist())  # 转成相对于 start 的偏移
+            tensor_frms = tensor_frms[new_indices]  # shape: [T, H, W, C]
+
+            # 随机取一帧作为参考图（ref_image），模型用这张图学"这个人长什么样"
+            ref_idx = random.randint(0, ori_vlen - 1)
             ref_image = vr[ref_idx]
 
+            # 把参考图从 numpy [H,W,C] → tensor [1,C,H,W]
             tensor_ref = torch.from_numpy(ref_image) if type(ref_image) is not torch.Tensor else ref_image
             tensor_ref = tensor_ref.permute(2, 0, 1).unsqueeze(0)
-            _, _, h, w = tensor_ref.shape
-            tensor_ref = resize_only(tensor_ref, self.video_size)
-            
+            _, _, h, w = tensor_ref.shape               # 记录原始尺寸（生成 mask 时需要）
+            tensor_ref = resize_only(tensor_ref, self.video_size)  # 缩放到训练分辨率
+
+            # 用参考帧对应的 bbox 生成人脸 mask
             mask_bbox = bbox[ref_idx]
             ref_mask = self.get_mask(mask_bbox, self.video_size, h, w)
-            mask_ref = tensor_ref * ref_mask
-            
+            mask_ref = tensor_ref * ref_mask  # 只保留人脸区域，背景清零（让模型专注于人脸）
 
-            tensor_frms = tensor_frms.permute(0, 3, 1, 2)  # [T, H, W, C] -> [T, C, H, W]
-            tensor_frms = resize_only(tensor_frms, self.video_size)
-            
-            assert tensor_frms.shape[0]==self.max_num_frames
-            
-            mask_ref = (mask_ref - 127.5) / 127.5
+            # 视频帧：[T,H,W,C] → [T,C,H,W]（PyTorch 标准格式）
+            tensor_frms = tensor_frms.permute(0, 3, 1, 2)
+            tensor_frms = resize_only(tensor_frms, self.video_size)  # 缩放到训练分辨率
+
+            assert tensor_frms.shape[0] == self.max_num_frames  # 确保帧数正确
+
+            # 归一化：像素值从 [0, 255] 映射到 [-1, 1]（扩散模型的标准输入范围）
+            mask_ref  = (mask_ref  - 127.5) / 127.5
             tensor_frms = (tensor_frms - 127.5) / 127.5
-            tensor_ref = (tensor_ref - 127.5) / 127.5
-            
+            tensor_ref  = (tensor_ref  - 127.5) / 127.5
+
+            # 把所有数据打包成 dict 返回给 DataLoader
             item = {
-                "mp4": tensor_frms,
-                "txt": caption,
-                "num_frames": self.max_num_frames,
-                "fps": self.fps,
-                "ref_image": tensor_ref,
-                "face_emb": face_emb,
-                "mask_ref": mask_ref
+                "mp4":        tensor_frms,          # 视频帧 [T, C, H, W]
+                "txt":        caption,               # 文本描述（字符串）
+                "num_frames": self.max_num_frames,   # 帧数（整数）
+                "fps":        self.fps,              # 帧率（整数）
+                "ref_image":  tensor_ref,            # 参考图 [1, C, H, W]
+                "face_emb":   face_emb,              # 人脸 embedding（用于控制生成）
+                "mask_ref":   mask_ref               # 人脸区域图（只有人脸，背景为 0）
             }
-            
+
+        # ---- 分支 2：元数据里没有 bbox，用预先生成的静态 mask 图 ----
+        # 这种格式用的是整个视频共享一张人脸 mask 图片
         else:
             video_path = video_meta["video_path"]
-
             face_emb_path = video_meta["face_emb_path"]
             caption = str(video_meta["caption"])
-            
+
             face_emb = torch.load(face_emb_path)
             if not isinstance(face_emb, torch.Tensor):
                 face_emb = torch.tensor(face_emb)
 
             vr = VideoReader(uri=video_path, height=-1, width=-1)
             ori_vlen = len(vr)
-            
+
             sample_len = self.max_num_frames * self.frame_interval
 
             assert ori_vlen > sample_len, video_path
-            start = random.randint(
-                    0, 
-                    ori_vlen - sample_len - 1
-                )
-            
+            start = random.randint(0, ori_vlen - sample_len - 1)
+
             end = min(start + self.max_num_frames * self.frame_interval, ori_vlen)
             ori_indices = np.arange(start, end, self.frame_interval).astype(int)
             temp_frms = vr.get_batch(np.arange(start, end))
             assert temp_frms is not None
             tensor_frms = torch.from_numpy(temp_frms) if type(temp_frms) is not torch.Tensor else temp_frms
-            
+
             ori_indices = torch.from_numpy(ori_indices)
             new_indices = torch.tensor((ori_indices - start).tolist())
             tensor_frms = tensor_frms[new_indices]
 
-            ref_idx = random.randint(
-                    0, 
-                    ori_vlen-1
-                )
-            
+            ref_idx = random.randint(0, ori_vlen - 1)
+
             ref_image = vr[ref_idx]
             tensor_ref = torch.from_numpy(ref_image) if type(ref_image) is not torch.Tensor else ref_image
             tensor_ref = tensor_ref.permute(2, 0, 1).unsqueeze(0)
             _, _, h, w = tensor_ref.shape
-            
+
+            # 读取预先生成的静态人脸 mask 图片（整个视频用同一张）
             mask_path = video_meta["face_mask_union_path"]
-            mask_image = Image.open(mask_path)
-            mask = self.to_tensor(mask_image).unsqueeze(0)
-            mask_ref = tensor_ref * mask
-            
+            mask_image = Image.open(mask_path)              # 打开 mask 图片
+            mask = self.to_tensor(mask_image).unsqueeze(0)  # 转 tensor，加 batch 维度
+            mask_ref = tensor_ref * mask                     # 用 mask 抠出人脸区域
+
+            # 缩放：用 square padding（先缩放到正方形，再两侧填黑边到目标宽度）
+            # 这样不会拉伸人脸比例
             tensor_ref = resize_for_square_padding(tensor_ref, self.video_size)
-            mask_ref = resize_for_square_padding(mask_ref, self.video_size)
-            
+            mask_ref   = resize_for_square_padding(mask_ref,   self.video_size)
+
             tensor_frms = tensor_frms.permute(0, 3, 1, 2)  # [T, H, W, C] -> [T, C, H, W]
             tensor_frms = resize_for_square_padding(tensor_frms, self.video_size)
-            
-            assert tensor_frms.shape[0]==self.max_num_frames
-            
-            
+
+            assert tensor_frms.shape[0] == self.max_num_frames
+
+            # 归一化到 [-1, 1]
             tensor_frms = (tensor_frms - 127.5) / 127.5
-            tensor_ref = (tensor_ref - 127.5) / 127.5
-            mask_ref = (mask_ref - 127.5) / 127.5
-            
+            tensor_ref  = (tensor_ref  - 127.5) / 127.5
+            mask_ref    = (mask_ref    - 127.5) / 127.5
+
             item = {
-                "mp4": tensor_frms,
-                "txt": caption,
+                "mp4":        tensor_frms,
+                "txt":        caption,
                 "num_frames": self.max_num_frames,
-                "fps": self.fps,
-                "ref_image": tensor_ref,
-                "face_emb": face_emb,
-                "mask_ref": mask_ref
+                "fps":        self.fps,
+                "ref_image":  tensor_ref,
+                "face_emb":   face_emb,
+                "mask_ref":   mask_ref
             }
 
         return item
 
 
-        
-
     def __len__(self):
+        """返回数据集大小，DataLoader 用这个决定一个 epoch 要取多少次"""
         return len(self.vid_meta)
 
     @classmethod
     def create_dataset_function(cls, path, args, **kwargs):
-        # print(path)
+        """工厂方法：train_video.py 通过字符串动态调用这个来创建数据集实例"""
         return cls(data_meta_path=path, **kwargs)
     
 

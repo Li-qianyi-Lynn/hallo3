@@ -41,6 +41,94 @@ python -c "import torch, cv2; print(torch.cuda.is_available(), torch.cuda.get_de
 
 ---
 
+## 1. 数据全流程概览
+
+### 原始数据：JSON 元数据
+
+`filtered_video_clips_with_captions.json` 里每条记录对应一个说话人片段：
+
+```json
+{
+  "video_url": "https://www.youtube.com/watch?v=xxx",
+  "start": 10.5,
+  "end": 16.2,
+  "caption": "A person talking about..."
+}
+```
+
+共 181,752 条记录。
+
+---
+
+### 第一步：下载 → `clips_download/`
+
+**实际路径：** `/scratch/li.qianyi/TalkVid/clips_download/`
+
+```bash
+python download_clips.py \
+    --input /scratch/li.qianyi/TalkVid/data/filtered_video_clips_with_captions.json \
+    --output /scratch/li.qianyi/TalkVid/clips_download/ \
+    --cookies /scratch/li.qianyi/TalkVid/youtube_cookies.txt
+```
+
+按 JSON 里的时间段从 YouTube 裁剪下载，得到：
+
+```
+/scratch/li.qianyi/TalkVid/clips_download/
+└── {VIDEO_ID}/
+    └── {VIDEO_ID}_{start}_{end}.mp4   ← 几秒钟的说话人原始片段
+```
+
+> **当前状态：** 下载卡在 yt-dlp n-challenge 问题，11,574 个 URL 失败，详见 `SLURM_JOBS_CN.md`。
+
+---
+
+### 第二步：TalkVid pipeline → `clips_flat/`
+
+**实际路径：** `/scratch/li.qianyi/TalkVid/clips_flat/`
+
+对原始片段做人脸检测、裁剪、音频特征提取（脚本在 `data_pipeline/` 下）：
+
+```
+/scratch/li.qianyi/TalkVid/clips_flat/
+├── videos-crop/*.mp4              ← 人脸区域裁剪后的视频
+├── new_face_info/*.pt             ← 每帧人脸检测结果
+│                                  #   list[帧] → list[人脸] → {bbox, 关键点, embedding}
+└── short_clip_aud_embeds/*.pt     ← 音频 embedding
+                                   #   dict{'global_embeds': Tensor[T, 1, 768]}
+```
+
+---
+
+### 第三步：格式转换 → `hallo3_data/`（Hallo3 训练格式）
+
+**实际路径：** `/scratch/li.qianyi/hallo3_data/`
+
+```bash
+python scripts/convert_talkvid_to_hallo3.py \
+    --clips_flat /scratch/li.qianyi/TalkVid/clips_flat/ \
+    --output /scratch/li.qianyi/hallo3_data/
+```
+
+```
+/scratch/li.qianyi/hallo3_data/
+├── videos/*.mp4                   ← 同 videos-crop
+├── images/{stem}/*.jpg            ← 逐帧拆出的图片
+├── face_emb/*.pt                  ← 人脸 embedding，所有帧平均 → Tensor[512]
+├── face_mask/*.png                ← 人脸区域二值 mask
+├── audio_emb/*.pt                 ← 音频 embedding Tensor[T, 1, 768]
+└── caption/*.txt                  ← "A person talking."
+```
+
+> **当前状态：** 已有 42 个测试样本转换完成，可直接用于训练流程验证。
+
+---
+
+**本质：** 每条训练样本 = 一段说话人短视频 + 人脸位置/特征 + 音频特征，
+用于训练"给定音频 → 生成对应嘴型和头部运动"的模型。
+
+---
+
 ## 1. TalkVid 数据结构说明
 
 TalkVid 预处理后的数据存放在 `clips_flat/`：
