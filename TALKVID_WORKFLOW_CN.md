@@ -41,7 +41,49 @@ python -c "import torch, cv2; print(torch.cuda.is_available(), torch.cuda.get_de
 
 ---
 
-## 1. 数据全流程概览
+## 1. 完整 Pipeline 一览
+
+```
+集群路径：/scratch/li.qianyi/TalkVid/
+
+Step 0  ✅ 下载完成
+        clips_download/{VIDEO_ID}/{VIDEO_ID}_{start}_{end}.{mp4,m4a}
+        脚本：data_pipeline/0_video_download/download_clips.py
+        提交：sbatch run_download.sh
+
+Step 1  扁平化结构
+        clips_flat/videos/  ← 所有 .mp4 软链接
+        clips_flat/audios/  ← 所有 .m4a 软链接
+        脚本：data_pipeline/4_flatten_for_training/flatten_clips.py
+        提交：sbatch data_pipeline/4_flatten_for_training/run_flatten.sh
+
+Step 2a face_crop（需 GPU，可与 2b 并行）
+        clips_flat/videos-crop/
+        脚本：src/data_preprocess/scripts/data_process/face_crop.sh
+
+Step 2b extract_audio_emb（需 GPU，可与 2a 并行）
+        clips_flat/short_clip_aud_embeds/
+        脚本：src/data_preprocess/scripts/data_process/extract_audio_emb.sh
+
+Step 2c extract_face_info（需 2a 完成后才能跑）
+        clips_flat/new_face_info/
+        脚本：src/data_preprocess/scripts/data_process/extract_face_info.sh
+
+Step 3  格式转换 → Hallo3 训练格式
+        /scratch/li.qianyi/hallo3_data/
+        脚本：/scratch/li.qianyi/hallo3/scripts/convert_talkvid_to_hallo3.py
+
+Step 4  生成训练索引
+        /scratch/li.qianyi/hallo3/data/talkvid.json
+        脚本：/scratch/li.qianyi/hallo3/hallo3/extract_meta_info.py
+
+Step 5  Fine-tune Hallo3
+        脚本：scripts/finetune_multi_gpus_s1.sh → s2.sh
+```
+
+---
+
+## 2. 数据全流程概览
 
 ### 原始数据：JSON 元数据
 

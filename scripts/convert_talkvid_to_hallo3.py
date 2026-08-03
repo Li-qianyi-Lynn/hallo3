@@ -19,7 +19,8 @@ Usage:
     python scripts/convert_talkvid_to_hallo3.py \
         --clips_flat /path/to/TalkVid/clips_flat \
         --output /path/to/hallo3_data \
-        --dataset_name talkvid
+        --dataset_name talkvid \
+        --num_workers 32
 
 After conversion, run:
     python hallo3/extract_meta_info.py -r /path/to/hallo3_data -n talkvid
@@ -27,6 +28,8 @@ After conversion, run:
 
 import argparse
 import shutil
+from functools import partial
+from multiprocessing import Pool
 from pathlib import Path
 
 import cv2
@@ -97,64 +100,70 @@ def convert_audio_emb(audio_data):
 
 
 def process_video(stem: str, clips_flat_dir: Path, output_dir: Path) -> bool:
+    # Skip if already converted
+    if (output_dir / "caption" / f"{stem}.txt").exists():
+        return True
+
     video_path      = clips_flat_dir / "videos-crop"          / f"{stem}.mp4"
     face_info_path  = clips_flat_dir / "new_face_info"         / f"{stem}.pt"
     audio_emb_path  = clips_flat_dir / "short_clip_aud_embeds" / f"{stem}.pt"
 
     for p in [video_path, face_info_path, audio_emb_path]:
         if not p.exists():
-            print(f"  [skip] missing: {p.name}")
             return False
 
-    # 1. Copy video
-    dst_video = output_dir / "videos" / f"{stem}.mp4"
-    dst_video.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(video_path, dst_video)
+    try:
+        # 1. Copy video
+        dst_video = output_dir / "videos" / f"{stem}.mp4"
+        dst_video.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(video_path, dst_video)
 
-    # 2. Extract frames
-    images_dir = output_dir / "images" / stem
-    n_frames = extract_frames(video_path, images_dir)
-    if n_frames == 0:
-        print(f"  [skip] no frames extracted: {stem}")
+        # 2. Extract frames
+        images_dir = output_dir / "images" / stem
+        n_frames = extract_frames(video_path, images_dir)
+        if n_frames == 0:
+            return False
+
+        # 3. Face embedding
+        face_info = torch.load(face_info_path, weights_only=False, map_location='cpu')
+        face_emb = convert_face_emb(face_info)
+        if face_emb is None:
+            return False
+        dst_face_emb = output_dir / "face_emb" / f"{stem}.pt"
+        dst_face_emb.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(face_emb, dst_face_emb)
+
+        # 4. Face mask
+        dst_face_mask = output_dir / "face_mask" / f"{stem}.png"
+        dst_face_mask.parent.mkdir(parents=True, exist_ok=True)
+        if not generate_face_mask(face_info, video_path, dst_face_mask):
+            return False
+
+        # 5. Audio embedding
+        audio_data = torch.load(audio_emb_path, weights_only=False, map_location='cpu')
+        audio_emb = convert_audio_emb(audio_data)
+        dst_audio_emb = output_dir / "audio_emb" / f"{stem}.pt"
+        dst_audio_emb.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(audio_emb, dst_audio_emb)
+
+        # 6. Caption
+        dst_caption = output_dir / "caption" / f"{stem}.txt"
+        dst_caption.parent.mkdir(parents=True, exist_ok=True)
+        dst_caption.write_text("A person talking.")
+
+        return True
+
+    except Exception as e:
+        print(f"  [error] {stem}: {e}")
         return False
-
-    # 3. Face embedding
-    face_info = torch.load(face_info_path, weights_only=False, map_location='cpu')
-    face_emb = convert_face_emb(face_info)
-    if face_emb is None:
-        print(f"  [skip] no face embedding: {stem}")
-        return False
-    dst_face_emb = output_dir / "face_emb" / f"{stem}.pt"
-    dst_face_emb.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(face_emb, dst_face_emb)
-
-    # 4. Face mask
-    dst_face_mask = output_dir / "face_mask" / f"{stem}.png"
-    dst_face_mask.parent.mkdir(parents=True, exist_ok=True)
-    if not generate_face_mask(face_info, video_path, dst_face_mask):
-        print(f"  [skip] mask generation failed: {stem}")
-        return False
-
-    # 5. Audio embedding
-    audio_data = torch.load(audio_emb_path, weights_only=False, map_location='cpu')
-    audio_emb = convert_audio_emb(audio_data)
-    dst_audio_emb = output_dir / "audio_emb" / f"{stem}.pt"
-    dst_audio_emb.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(audio_emb, dst_audio_emb)
-
-    # 6. Caption
-    dst_caption = output_dir / "caption" / f"{stem}.txt"
-    dst_caption.parent.mkdir(parents=True, exist_ok=True)
-    dst_caption.write_text("A person talking.")
-
-    return True
 
 
 def main():
     parser = argparse.ArgumentParser(description="Convert TalkVid data to Hallo3 format")
-    parser.add_argument("--clips_flat",    type=Path, required=True, help="Path to TalkVid clips_flat/")
-    parser.add_argument("--output",        type=Path, required=True, help="Output directory for Hallo3 data")
-    parser.add_argument("--dataset_name",  type=str, default="talkvid", help="Dataset name for meta JSON")
+    parser.add_argument("--clips_flat",   type=Path, required=True, help="Path to TalkVid clips_flat/")
+    parser.add_argument("--output",       type=Path, required=True, help="Output directory for Hallo3 data")
+    parser.add_argument("--dataset_name", type=str, default="talkvid", help="Dataset name for meta JSON")
+    parser.add_argument("--num_workers",  type=int, default=8, help="Number of parallel workers")
     args = parser.parse_args()
 
     clips_flat_dir = args.clips_flat
@@ -166,12 +175,18 @@ def main():
         if p.suffix == '.mp4'
     )
     print(f"Found {len(video_stems)} videos in videos-crop/")
+    print(f"Using {args.num_workers} workers")
 
-    success = 0
-    for stem in tqdm(video_stems, desc="Converting"):
-        if process_video(stem, clips_flat_dir, output_dir):
-            success += 1
+    worker_fn = partial(process_video, clips_flat_dir=clips_flat_dir, output_dir=output_dir)
 
+    with Pool(processes=args.num_workers) as pool:
+        results = list(tqdm(
+            pool.imap_unordered(worker_fn, video_stems),
+            total=len(video_stems),
+            desc="Converting"
+        ))
+
+    success = sum(results)
     print(f"\nDone: {success}/{len(video_stems)} videos converted")
     print(f"Output: {output_dir}")
     print(f"\nNext step:")
