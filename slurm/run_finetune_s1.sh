@@ -57,6 +57,13 @@ torchrun --standalone --nproc_per_node=1 \
     hallo3/train_video.py \
     --base configs/cogvideox_5b_i2v_s1.yaml configs/sft_talkvid.yaml \
     --seed $RANDOM
+TRAIN_EXIT=$?
+
+# ==== 训练异常退出，不重提交 ====
+if [ $TRAIN_EXIT -ne 0 ]; then
+    echo "❌ 训练异常退出 (exitcode: $TRAIN_EXIT)，停止自动重提交，请检查日志"
+    exit $TRAIN_EXIT
+fi
 
 echo "✅ 本轮训练完成: $(date)"
 
