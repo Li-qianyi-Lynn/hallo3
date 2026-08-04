@@ -27,9 +27,9 @@ args:
 data:
   target: data_video.SFTDataset
   params:
-    video_size: [ 480, 720 ]
+    video_size: [ 320, 512 ]
     fps: 8
-    max_num_frames: 49
+    max_num_frames: 25
     skip_frms_num: 3.
 
 deepspeed:
