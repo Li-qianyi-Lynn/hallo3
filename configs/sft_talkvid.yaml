@@ -57,7 +57,7 @@ deepspeed:
   min_loss_scale: 1
 
   optimizer:
-    type: sat.ops.FusedEmaAdam
+    type: AdamW
     params:
       lr: 1e-5
       betas: [ 0.9, 0.95 ]
