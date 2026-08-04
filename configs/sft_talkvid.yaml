@@ -27,9 +27,9 @@ args:
 data:
   target: data_video.SFTDataset
   params:
-    video_size: [ 320, 512 ]  # reduced for smoke test; use [480, 720] for full training
+    video_size: [ 480, 720 ]
     fps: 8
-    max_num_frames: 25        # reduced for smoke test; use 49 for full training
+    max_num_frames: 49
     skip_frms_num: 3.
 
 deepspeed:
