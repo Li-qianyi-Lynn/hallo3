@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -p sharing
-#SBATCH --gres=gpu:h200:4
-#SBATCH --mem=200G
-#SBATCH --cpus-per-task=32
+#SBATCH --gres=gpu:a6000:8
+#SBATCH --mem=256G
+#SBATCH --cpus-per-task=64
 #SBATCH -o /scratch/li.qianyi/hallo3/logs/finetune_s1_%j.log
 
 HALLO3_DIR="/scratch/li.qianyi/hallo3"
@@ -50,9 +50,9 @@ fi
 
 echo "开始训练: $(date)"
 
-CUDA_VISIBLE_DEVICES="0,1,2,3" \
+CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-torchrun --standalone --nproc_per_node=4 \
+torchrun --standalone --nproc_per_node=8 \
     hallo3/train_video.py \
     --base configs/cogvideox_5b_i2v_s1.yaml configs/sft_talkvid.yaml \
     --seed $RANDOM
