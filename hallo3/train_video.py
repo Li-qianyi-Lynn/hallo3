@@ -12,6 +12,7 @@ from omegaconf import OmegaConf  # 读取 .yaml 配置文件的库
 import imageio                   # 把帧列表写成 mp4 视频文件
 
 import torch
+torch.backends.cudnn.enabled = False  # cuDNN 9.2.0 与驱动 570.86.15 在 H200 上不兼容
 
 from sat import mpu              # SAT 库：管理"模型并行"的进程组
 from sat.training.deepspeed_training import training_main  # DeepSpeed 训练主循环
