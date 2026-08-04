@@ -38,13 +38,13 @@ model:
     params:
       time_embed_dim: 512
       elementwise_affine: True
-      num_frames: 25
+      num_frames: 49
       time_compressed_rate: 4
-      latent_width: 64
-      latent_height: 40
+      latent_width: 90
+      latent_height: 60
       num_layers: 42
       patch_size: 2
-      in_channels: 32  
+      in_channels: 32
       out_channels: 16
       hidden_size: 3072
       adm_in_channels: 256
@@ -89,10 +89,10 @@ model:
     params:
       time_embed_dim: 512
       elementwise_affine: True
-      num_frames: 25
+      num_frames: 49
       time_compressed_rate: 4
-      latent_width: 64
-      latent_height: 40
+      latent_width: 90
+      latent_height: 60
       num_layers: 42
       patch_size: 2
       in_channels: 32  
