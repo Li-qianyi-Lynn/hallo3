@@ -31,7 +31,8 @@ resubmit() {
 trap resubmit SIGTERM
 
 # ==== 激活环境 ====
-# 不加载系统 CUDA 模块，使用 PyTorch 2.4.1+cu124 自带的 CUDA runtime
+module load cuda/12.8.0
+module load cuDNN/9.10.2
 source /home/li.qianyi/.bashrc
 conda activate /home/li.qianyi/envs/hallo
 
@@ -51,7 +52,6 @@ echo "开始训练: $(date)"
 
 CUDA_VISIBLE_DEVICES="0" \
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-TORCH_CUDNN_V8_API_DISABLED=1 \
 torchrun --standalone --nproc_per_node=1 \
     hallo3/train_video.py \
     --base configs/cogvideox_5b_i2v_s1.yaml configs/sft_talkvid.yaml \
