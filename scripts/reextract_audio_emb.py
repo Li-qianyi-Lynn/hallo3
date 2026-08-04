@@ -35,8 +35,7 @@ from sgm.utils.util import extract_audio_from_videos, get_fps
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [rank%(rank)s] %(levelname)s %(message)s",
-    defaults={"rank": "?"},
+    format="%(asctime)s %(levelname)s %(message)s",
 )
 
 
@@ -65,7 +64,16 @@ def main():
         "--skip_existing", action="store_true",
         help="Skip files that already have shape (T, 12, 768)"
     )
+    parser.add_argument(
+        "--device", type=str, default=None,
+        help="Device for wav2vec inference: 'cuda:0', 'cpu', etc. "
+             "Default: cuda:0 if available, else cpu"
+    )
     args = parser.parse_args()
+
+    if args.device is None:
+        args.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Using device: {args.device}")
 
     logger = logging.getLogger()
 
@@ -79,6 +87,7 @@ def main():
         only_last_features=False,       # all 12 hidden layers → (T, 12, 768)
         audio_separator_model_path=None,
         audio_separator_model_name=None,
+        device=args.device,
     )
 
     video_paths = get_video_paths(args.data_dir, args.parallelism, args.rank)
