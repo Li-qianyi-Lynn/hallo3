@@ -60,8 +60,8 @@ torchrun --standalone --nproc_per_node=4 \
 echo "✅ 本轮训练完成: $(date)"
 
 # ==== 检查是否训练完成（stage-1/100/ 存在则完成）====
-if [ -d "$CKPT_DIR/100" ]; then
-    echo "🎉 100 iterations 完成！"
+if [ -d "$CKPT_DIR/500" ]; then
+    echo "🎉 500 iterations 完成！"
 else
     echo "未完成，自动重提交..."
     safe_resubmit
