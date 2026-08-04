@@ -39,7 +39,7 @@ deepspeed:
   gradient_clipping: 0.1
   zero_optimization:
     stage: 2
-    cpu_offload: false
+    cpu_offload: true
     contiguous_gradients: false
     overlap_comm: true
     reduce_scatter: true
