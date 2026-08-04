@@ -335,19 +335,217 @@ yt-dlp --verbose --skip-download --cookies ... URL 2>&1 | grep "JS runtimes"
 
 ---
 
+### 17. PyTorch cu130 与集群 CUDA 12.8 驱动不兼容
+
+**报错：**
+```
+RuntimeError: The NVIDIA driver on your system is too old (found version 12080).
+Please update your GPU driver by downloading and installing a new version...
+```
+
+**原因：** 集群所有节点（包括 H200）的 CUDA 驱动为 12.8（`12080`），PyTorch `cu130` 编译版本要求驱动 ≥13.0。CUDA 不向前兼容，高版本编译的包无法跑在低版本驱动上。
+
+**解决：** 重装为 cu124（CUDA 12.4 编译，可在 ≥12.4 驱动上运行）：
+```bash
+pip uninstall torch torchvision xformers -y
+pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124
+pip install xformers==0.0.28.post1 --index-url https://download.pytorch.org/whl/cu124
+```
+
+验证（在登录节点上 `CUDA available: False` 属于正常，无 GPU）：
+```bash
+python -c "import torch, torchvision, xformers; print(torch.__version__, xformers.__version__)"
+# 期望：2.4.1+cu124  0.0.28.post1
+```
+
+---
+
+### 18. xformers 指定版本在 cu124 索引中不存在
+
+**报错：**
+```
+ERROR: Could not find a version that satisfies the requirement xformers==0.0.27.post2
+(from versions: 0.0.28.post1, 0.0.28.post2, 0.0.28.post3, 0.0.29, ...)
+```
+
+**原因：** cu124 索引中 xformers 最低版本为 `0.0.28.post1`，`0.0.27.post2` 不存在。
+
+**解决：** 改用最接近的版本：
+```bash
+pip install xformers==0.0.28.post1 --index-url https://download.pytorch.org/whl/cu124
+```
+
+---
+
+### 19. NCCL CUDA 调用失败（单卡训练）
+
+**报错：**
+```
+torch.distributed.DistBackendError: NCCL error in: ../torch/csrc/distributed/c10d/NCCLUtils.hpp:275,
+unhandled cuda error (run with NCCL_DEBUG=INFO for details), NCCL version 2.29.7
+ncclUnhandledCudaError: Call to CUDA function failed.
+```
+
+**根本原因：** NCCL 2.29.7（随 torch 2.4.1+cu124 捆绑）在集群 CUDA 12.8 驱动上调用某 CUDA API 失败。单卡训练（world_size=1）完全不需要 NCCL，但 SAT 框架在 `hallo3/arguments.py:286` 硬调用 `init_process_group(backend=args.distributed_backend)`，默认值为 `"nccl"`。
+
+**已尝试但无效的方法：**
+- `NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1` — NCCL 仍初始化，P2P/IB 不是根本原因
+- 换 `deepspeed --num_gpus 1` 启动器 — 底层仍调用同一段 Python 初始化代码，报错一样
+
+**解决：** 传 `--distributed_backend gloo` 参数，直接绕过 NCCL：
+```bash
+torchrun --standalone --nproc_per_node=1 \
+    hallo3/train_video.py \
+    --base configs/cogvideox_5b_i2v_s1.yaml configs/sft_talkvid.yaml \
+    --distributed_backend gloo \
+    --seed $RANDOM
+```
+
+单卡 world_size=1 无卡间通信，gloo（CPU 通信后端）与 nccl 效果完全等价，且不依赖任何 NCCL CUDA 调用。已更新到 `slurm/run_finetune_s1.sh`。
+
+---
+
+### 20. cuDNN 9.2.0 与驱动 570.86.15 不兼容（CUDNN_STATUS_NOT_INITIALIZED）
+
+**报错：**
+```
+RuntimeError: cuDNN error: CUDNN_STATUS_NOT_INITIALIZED
+```
+
+**现象：** 训练在 iteration 0 的 VAE encoder 第一个 Conv3d 就崩溃，所有 dtype（float32/float16/bfloat16）都失败。
+
+**根本原因：** PyTorch 2.4.1+cu124 自带的 cuDNN 9.2.0 与集群 H200 节点的驱动 570.86.15 不兼容。之前 SLURM 脚本中有 `module load cuda/12.8.0` 和 `module load cuDNN/9.10.2`，加载系统的 cuDNN 9.10.2 覆盖了 PyTorch 自带的 9.2.0，所以能正常运行。去掉这两行后回退到自带的旧版 cuDNN，导致所有 Conv3d 操作失败。
+
+**诊断：**
+```bash
+# 在 H200 节点上测试（不加载系统 CUDA 模块）
+python -c "
+import torch
+print('cuDNN version:', torch.backends.cudnn.version())  # 92000 (9.2.0)
+x = torch.randn(1,3,4,64,64).cuda().bfloat16()
+w = torch.randn(128,3,3,3,3).cuda().bfloat16()
+y = torch.nn.functional.conv3d(x, w, padding=1)  # FAIL
+"
+# 禁用 cuDNN 后测试
+torch.backends.cudnn.enabled = False  # → OK，确认是 cuDNN 的问题
+```
+
+**已尝试但无效的方法：**
+- `torch.backends.cudnn.enabled = False` — Python 层面设置但被 SAT/DeepSpeed 初始化重新打开
+- `TORCH_CUDNN_V8_API_DISABLED=1` — 导致 `CUDA error: illegal memory access`（SIGABRT）
+
+**解决：** 在 SLURM 脚本中恢复系统 CUDA/cuDNN 模块加载：
+```bash
+module load cuda/12.8.0
+module load cuDNN/9.10.2
+```
+
+**教训：** 已验证能跑通的系统模块配置（`module load`）不要随意删除。
+
+---
+
+### 21. FusedEmaAdam CUDA 非法内存访问（optimizer step 崩溃）
+
+**报错：**
+```
+RuntimeError: CUDA error: an illegal memory access was encountered
+```
+
+**调用栈：**
+```
+deepspeed/runtime/zero/stage_1_and_2.py → optimizer.step()
+sat/ops/fused_ema_adam.py:233 → multi_tensor_applier(self.multi_tensor_ema_adam, ...)
+deepspeed/ops/adam/multi_tensor_apply.py:17 → return op(...)
+RuntimeError: CUDA error: an illegal memory access was encountered
+```
+
+**现象：** 训练 forward + backward 正常完成，但在第一次 `optimizer.step()` 时崩溃（SIGABRT）。
+
+**根本原因：** `sat.ops.FusedEmaAdam` 是 SAT 框架自带的自定义 CUDA 算子，未针对 H200（Hopper 架构，compute capability 9.0）编译，运行时产生非法内存访问。与问题 #6 本质相同，但这次出现在 `sft_talkvid.yaml` 配置里（之前只记录了 `sft_s1.yaml`）。
+
+**解决：** 在 `configs/sft_talkvid.yaml` 中将 optimizer 改为标准 PyTorch 的 AdamW：
+```yaml
+optimizer:
+  type: AdamW   # 原来是 sat.ops.FusedEmaAdam
+  params:
+    lr: 1e-5
+    betas: [ 0.9, 0.95 ]
+    eps: 1e-8
+    weight_decay: 1e-4
+```
+
+**注意：** 所有使用 `sat.ops.FusedEmaAdam` 的配置文件（`sft_s1.yaml`、`sft_s2.yaml`、`sft_talkvid.yaml` 等）在 H200 上都需要改成 `AdamW`。
+
+---
+
+### 22. 降分辨率后 einops shape mismatch
+
+**报错：**
+```
+einops.EinopsError: Shape mismatch, can't divide axis of length 640 in chunks of 1350
+Error while processing rearrange-reduction pattern "b (t h w) (c p q) -> b t c (h p) (w q)"
+```
+
+**现象：** 将 `sft_talkvid.yaml` 的 `video_size` 从 [480, 720] 降到 [320, 512] 后，训练在 iteration 0 崩溃。
+
+**根本原因：** `configs/cogvideox_5b_i2v_s1.yaml` 中硬编码了 latent 空间的分辨率参数（`latent_width`、`latent_height`、`num_frames`），用于模型 FinalLayer 的 `unpatchify` 操作（`dit_video_concat.py:382`）。改了数据分辨率但没改这些参数，导致 rearrange 时实际 tensor 维度与期望不匹配。
+
+**维度对照：**
+
+| 参数 | 480×720, 49帧 | 320×512, 25帧 |
+|------|--------------|--------------|
+| `latent_width` | 90 (720/8) | 64 (512/8) |
+| `latent_height` | 60 (480/8) | 40 (320/8) |
+| `num_frames` | 49 | 25 |
+| unpatchify h×w | 30×45 = 1350 | 20×32 = 640 |
+
+**解决：** 在 `cogvideox_5b_i2v_s1.yaml` 中同步修改两处（`network_config` 和 `ref_network_config`）：
+```yaml
+# 降分辨率时改为：
+num_frames: 25
+latent_width: 64    # = 新宽度 / 8
+latent_height: 40   # = 新高度 / 8
+```
+
+**公式：** `latent_width = video_width / 8`，`latent_height = video_height / 8`，`num_frames = max_num_frames`
+
+**注意：** 改回全分辨率训练时，这些参数也要改回 `latent_width: 90, latent_height: 60, num_frames: 49`。
+
+---
+
 ## 五、快速参考
 
-### 当前已知可用的训练命令（单卡 H200）
+### 当前已知可用的训练命令（单卡 H200，2026-08-04 验证）
 
+**前提条件：**
+- `configs/sft_talkvid.yaml`：`optimizer.type: AdamW`，`video_size: [480, 720]`，`max_num_frames: 49`
+- `configs/cogvideox_5b_i2v_s1.yaml`：`latent_width: 90`，`latent_height: 60`，`num_frames: 49`
+- SLURM 脚本中已加载 `module load cuda/12.8.0` + `module load cuDNN/9.10.2`
+
+**Interactive 方式：**
 ```bash
+module load cuda/12.8.0
+module load cuDNN/9.10.2
 conda activate /home/li.qianyi/envs/hallo
 cd /scratch/li.qianyi/hallo3
 
-CUDA_VISIBLE_DEVICES="0" PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+CUDA_VISIBLE_DEVICES="0" \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 torchrun --standalone --nproc_per_node=1 \
-hallo3/train_video.py \
---base configs/cogvideox_5b_i2v_s1.yaml configs/sft_s1.yaml \
---seed $RANDOM
+    hallo3/train_video.py \
+    --base configs/cogvideox_5b_i2v_s1.yaml configs/sft_talkvid.yaml \
+    --seed $RANDOM
+```
+
+**Batch 方式：**
+```bash
+sbatch slurm/run_finetune_s1.sh
+```
+
+环境依赖（PyTorch 2.4.1+cu124，xformers 0.0.28.post1）：
+```bash
+pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124
+pip install xformers==0.0.28.post1 --index-url https://download.pytorch.org/whl/cu124
 ```
 
 ### 当前已知可用的推理命令

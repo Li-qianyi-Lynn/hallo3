@@ -276,6 +276,69 @@ checkpoint 每 500 步自动保存到 `./stage-1/` 和 `./stage-2/`。
 
 ---
 
+## 训练计划
+
+### 阶段一：Smoke Test（当前）
+
+**目标**：验证数据格式正确、训练流程跑通、loss 正常下降，不追求生成质量。
+
+| 参数 | 值 |
+|------|----|
+| 配置文件 | `configs/sft_talkvid.yaml` |
+| SLURM 脚本 | `slurm/run_finetune_s1.sh` |
+| 迭代数 | 500 |
+| 视频尺寸 | 320×512（降低显存占用） |
+| 最大帧数 | 25（降低显存占用） |
+| GPU | 8×A6000（d3232，sharing 分区） |
+| DeepSpeed | ZeRO-2，无 cpu_offload |
+| checkpoint | 每 25 步保存，支持自动续训 |
+
+**遇到的 OOM 问题及解法**：
+
+| 尝试 | GPU | 问题 | 原因 |
+|------|-----|------|------|
+| 4×L40S | 44.5GB/卡 | CUDA OOM | 显存不足 |
+| 8×A6000 + cpu_offload | 48GB/卡 | SIGKILL (-9) | CPU 内存溢出 |
+| 8×A6000 + ZeRO-3 | 48GB/卡 | TypeError | ZeRO-3 与 ColumnParallelLinear 不兼容 |
+| 8×A6000 + ZeRO-2 + 原始尺寸 | 48GB/卡 | SIGKILL (-9) | 49帧×480×720 activation 超显存 |
+| 1×H200 + xformers | 80GB/卡 | **进行中** | ZeRO-2 单卡，内存高效注意力 |
+
+**遇到的环境兼容性问题及解法**：
+
+| 报错 | 原因 | 解决方法 |
+|------|------|---------|
+| `RuntimeError: NVIDIA driver too old (found version 12080)` | 集群所有节点（含 H200）CUDA 驱动为 12.8，PyTorch cu130 要求 ≥13.0 | 重装 PyTorch：`pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124` |
+| `ERROR: Could not find a version xformers==0.0.27.post2` | cu124 索引中无该版本 | 改用 `xformers==0.0.28.post1 --index-url https://download.pytorch.org/whl/cu124` |
+| `ncclUnhandledCudaError: Call to CUDA function failed` (NCCL 2.29.7) | torchrun 单卡仍初始化 NCCL，P2P/InfiniBand 调用在部分节点上失败 | 训练命令加 `NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1` |
+| `can't divide axis of length 640 in chunks of 1350` (einops) | 模型空间 token 数硬编码为 1350（对应 480×720），视频尺寸不可改 | 必须用 480×720，不能降低分辨率 |
+| `shape '[4, 48, 4, 64]' is invalid` (reshape) | 模型时序维度硬编码为 49 帧，帧数不可改 | 必须用 49 帧，不能减少帧数 |
+| `CUDA illegal memory access` (单卡无 xformers) | 标准 O(n²) 注意力对 17550 token 约需 29GB/层，超出显存 | 安装 xformers（memory-efficient attention） |
+
+---
+
+### 阶段二：正式训练（Smoke Test 跑通后）
+
+**目标**：用完整分辨率和更多迭代数训练，追求生成质量。
+
+| 参数 | 值 |
+|------|----|
+| 迭代数 | 2000～5000 |
+| 视频尺寸 | 480×720（恢复原始） |
+| 最大帧数 | 49（恢复原始） |
+| GPU | 8×H200（需等节点空闲） |
+| DeepSpeed | ZeRO-2 |
+
+```bash
+# 正式训练时修改配置
+# configs/sft_talkvid.yaml:
+#   train_iters: 2000
+#   video_size: [480, 720]
+#   max_num_frames: 49
+#   GPU: --gres=gpu:h200:8
+```
+
+---
+
 ## 5. 推理（Inference）
 
 用我自己的图
