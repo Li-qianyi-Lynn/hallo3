@@ -54,7 +54,6 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 torchrun --standalone --nproc_per_node=1 \
     hallo3/train_video.py \
     --base configs/cogvideox_5b_i2v_s1.yaml configs/sft_talkvid.yaml \
-    --distributed_backend gloo \
     --seed $RANDOM
 TRAIN_EXIT=$?
 

@@ -282,9 +282,11 @@ def initialize_distributed(args):
     args.master_port = os.getenv("MASTER_PORT", default_master_port)
     init_method += args.master_ip + ":" + args.master_port
 
-    # 正式初始化分布式进程组（nccl 是 GPU 间通信的高效后端）
+    # 单卡训练用 gloo，避免 NCCL 在集群上的 CUDA 初始化失败
+    # NCCL 2.29.7 + CUDA 12.8 驱动存在兼容问题；单卡 world_size=1 无卡间通信，gloo 完全等价
+    dist_backend = "gloo" if args.world_size == 1 else args.distributed_backend
     torch.distributed.init_process_group(
-        backend=args.distributed_backend,   # 通常是 "nccl"
+        backend=dist_backend,
         world_size=args.world_size,
         rank=args.rank,
         init_method=init_method
@@ -304,7 +306,7 @@ def initialize_distributed(args):
         import deepspeed
         # DeepSpeed 也需要独立初始化它自己的分布式环境
         deepspeed.init_distributed(
-            dist_backend=args.distributed_backend,
+            dist_backend=dist_backend,
             world_size=args.world_size,
             rank=args.rank,
             init_method=init_method
