@@ -31,8 +31,7 @@ resubmit() {
 trap resubmit SIGTERM
 
 # ==== 激活环境 ====
-module load cuda/12.8.0
-module load cuDNN/9.10.2
+# 不加载系统 CUDA 模块，使用 PyTorch 2.13.0+cu130 自带的 CUDA runtime
 source /home/li.qianyi/.bashrc
 conda activate /home/li.qianyi/envs/hallo
 
