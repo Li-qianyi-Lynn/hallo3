@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH -p sharing
-#SBATCH --gres=gpu:a6000:8
-#SBATCH --mem=128G
-#SBATCH --cpus-per-task=64
+#SBATCH -p gpu
+#SBATCH --gres=gpu:h200:1
+#SBATCH --mem=64G
+#SBATCH --cpus-per-task=8
 #SBATCH -o /scratch/li.qianyi/hallo3/logs/finetune_s1_%j.log
 
 HALLO3_DIR="/scratch/li.qianyi/hallo3"
@@ -50,9 +50,9 @@ fi
 
 echo "开始训练: $(date)"
 
-CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+CUDA_VISIBLE_DEVICES="0" \
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-torchrun --standalone --nproc_per_node=8 \
+torchrun --standalone --nproc_per_node=1 \
     hallo3/train_video.py \
     --base configs/cogvideox_5b_i2v_s1.yaml configs/sft_talkvid.yaml \
     --seed $RANDOM
@@ -60,8 +60,8 @@ torchrun --standalone --nproc_per_node=8 \
 echo "✅ 本轮训练完成: $(date)"
 
 # ==== 检查是否训练完成（stage-1/100/ 存在则完成）====
-if [ -d "$CKPT_DIR/500" ]; then
-    echo "🎉 500 iterations 完成！"
+if [ -d "$CKPT_DIR/100" ]; then
+    echo "🎉 100 iterations 完成！"
 else
     echo "未完成，自动重提交..."
     safe_resubmit

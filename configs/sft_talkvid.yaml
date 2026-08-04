@@ -6,7 +6,7 @@ args:
   load: ./pretrained_models/cogvideox-5b-i2v-sat/transformer # pretrained model path
 
   no_load_rng: True
-  train_iters: 500
+  train_iters: 100
   eval_iters: 1
   eval_interval: 500
   eval_batch_size: 1
