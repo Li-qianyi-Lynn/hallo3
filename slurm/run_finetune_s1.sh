@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -p sharing
 #SBATCH --gres=gpu:a6000:8
-#SBATCH --mem=256G
+#SBATCH --mem=128G
 #SBATCH --cpus-per-task=64
 #SBATCH -o /scratch/li.qianyi/hallo3/logs/finetune_s1_%j.log
 

@@ -38,14 +38,17 @@ deepspeed:
   steps_per_print: 10
   gradient_clipping: 0.1
   zero_optimization:
-    stage: 2
-    cpu_offload: true
-    contiguous_gradients: false
+    stage: 3
+    cpu_offload: false
+    contiguous_gradients: true
     overlap_comm: true
     reduce_scatter: true
-    reduce_bucket_size: 1000000000
-    allgather_bucket_size: 1000000000
+    reduce_bucket_size: 200000000
+    allgather_bucket_size: 200000000
     load_from_fp32_weights: false
+    stage3_max_live_parameters: 1000000000
+    stage3_max_reuse_distance: 1000000000
+    stage3_gather_16bit_weights_on_model_save: true
   zero_allow_untested_optimizer: true
   bf16:
       enabled: True
