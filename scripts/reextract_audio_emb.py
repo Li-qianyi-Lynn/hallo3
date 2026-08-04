@@ -71,11 +71,11 @@ def main():
     )
     args = parser.parse_args()
 
+    logger = logging.getLogger()
+
     if args.device is None:
         args.device = "cuda:0" if torch.cuda.is_available() else "cpu"
     logger.info(f"Using device: {args.device}")
-
-    logger = logging.getLogger()
 
     audio_emb_dir = args.data_dir / "audio_emb"
     audio_emb_dir.mkdir(exist_ok=True)
