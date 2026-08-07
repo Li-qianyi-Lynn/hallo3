@@ -13,8 +13,7 @@
 #
 # 默认使用选项 A（CPU），取消注释选项 B 可切换到 GPU
 #
-#SBATCH -p gpu
-#SBATCH --gres=gpu:1         # 任意 GPU，不指定型号
+#SBATCH -p short
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
 #SBATCH --array=0-3          # 4 并行 job，各处理约 15,000 个视频
@@ -37,6 +36,7 @@ echo "开始重提取音频 embedding: rank=${SLURM_ARRAY_TASK_ID}/4, $(date)"
 
 python scripts/reextract_audio_emb.py \
     --data_dir "$DATA_DIR" \
+    --audio_dir /scratch/li.qianyi/TalkVid/clips_flat/audios \
     --wav2vec_model_path pretrained_models/wav2vec/wav2vec2-base-960h \
     --parallelism 4 \
     --rank "$SLURM_ARRAY_TASK_ID" \
