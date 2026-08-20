@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -p gpu,sharing
-#SBATCH --gres=gpu:h200:1
+#SBATCH -p gpu
+#SBATCH --gres=gpu:a100:1
 #SBATCH --mem=80G
 #SBATCH --cpus-per-task=8
 #SBATCH -o /scratch/li.qianyi/hallo3/logs/inference_%j.log
