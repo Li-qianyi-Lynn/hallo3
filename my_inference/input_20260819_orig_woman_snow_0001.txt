@@ -1,0 +1,1 @@
+A young woman standing in the snow@@my_inference/images/woman_snow.jpg@@examples/inference/audios/0001.wav
