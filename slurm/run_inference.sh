@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -p gpu
+#SBATCH -p gpu,sharing
 #SBATCH --gres=gpu:h200:1
 #SBATCH --mem=80G
 #SBATCH --cpus-per-task=8
