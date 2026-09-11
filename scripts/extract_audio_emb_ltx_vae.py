@@ -106,18 +106,21 @@ def extract_embedding(
     return audio_emb
 
 
-def get_video_paths(data_dir: Path, parallelism: int, rank: int) -> List[Path]:
-    video_dir = data_dir / "videos"
-    all_videos = sorted(p for p in video_dir.iterdir() if p.suffix == ".mp4")
-    return [all_videos[i] for i in range(len(all_videos)) if i % parallelism == rank]
+def get_audio_paths(audio_dir: Path, parallelism: int, rank: int) -> List[Path]:
+    """Find all audio files in directory."""
+    all_audios = sorted(
+        p for p in audio_dir.iterdir()
+        if p.suffix in [".m4a", ".wav", ".mp3", ".flac"]
+    )
+    return [all_audios[i] for i in range(len(all_audios)) if i % parallelism == rank]
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=Path, required=True,
-                        help="hallo3_data root (contains videos/, audio_emb/)")
     parser.add_argument("--audio_dir", type=Path, required=True,
-                        help="Directory containing .m4a or .wav audio files")
+                        help="Directory containing audio files (.m4a/.wav)")
+    parser.add_argument("--output_dir", type=Path, required=True,
+                        help="Directory to save audio_emb .pt files")
     parser.add_argument("--checkpoint", type=str, required=True,
                         help="Path to ltx-2.5-audio-vae-bf16.safetensors")
     parser.add_argument("--parallelism", type=int, default=1)
@@ -142,30 +145,16 @@ def main():
         n_fft=1024,
     ).to(device=args.device)
 
-    # Get video list
-    video_paths = get_video_paths(args.data_dir, args.parallelism, args.rank)
-    logger.info(f"rank={args.rank}: {len(video_paths)} videos to process")
+    # Get audio file list
+    audio_paths = get_audio_paths(args.audio_dir, args.parallelism, args.rank)
+    logger.info(f"rank={args.rank}: {len(audio_paths)} audio files to process")
 
-    out_dir = args.data_dir / "audio_emb"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    ok = fail_no_audio = fail_other = 0
+    ok = fail_other = 0
 
-    for video_path in tqdm(video_paths, desc=f"rank{args.rank}"):
-        out_path = out_dir / f"{video_path.stem}.pt"
-
-        # Find matching audio file (.m4a or .wav)
-        audio_path = None
-        for ext in [".m4a", ".wav", ".mp3", ".flac"]:
-            candidate = args.audio_dir / f"{video_path.stem}{ext}"
-            if candidate.exists():
-                audio_path = candidate
-                break
-
-        if audio_path is None:
-            logger.warning(f"No audio found: {video_path.stem}")
-            fail_no_audio += 1
-            continue
+    for audio_path in tqdm(audio_paths, desc=f"rank{args.rank}"):
+        out_path = args.output_dir / f"{audio_path.stem}.pt"
 
         try:
             audio_emb = extract_embedding(str(audio_path), encoder, processor, args.device)
@@ -175,12 +164,11 @@ def main():
             torch.save(audio_emb, out_path)
             ok += 1
         except Exception as e:
-            logger.error(f"Failed {video_path.stem}: {e}")
+            logger.error(f"Failed {audio_path.stem}: {e}")
             fail_other += 1
 
     logger.info(
-        f"rank={args.rank} done — ok={ok}, "
-        f"no_audio={fail_no_audio}, errors={fail_other}"
+        f"rank={args.rank} done — ok={ok}, errors={fail_other}"
     )
 
 
