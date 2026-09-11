@@ -15,6 +15,43 @@ import torch
 
 from sat import mpu              # SAT 库：管理"模型并行"的进程组
 from sat.training.deepspeed_training import training_main  # DeepSpeed 训练主循环
+import sat.training.model_io as sat_model_io
+
+# Monkey-patch SAT's load_checkpoint to skip shape-mismatched keys.
+# Needed because LTX-2 VAE's AudioProjModel has different dimensions (640 vs 46080)
+# and the pretrained checkpoint has the old wav2vec dimensions.
+_orig_load_checkpoint = sat_model_io.load_checkpoint
+
+def _patched_load_checkpoint(model, args, *a, **kw):
+    import torch as _torch
+    _orig_load_state_dict = _torch.nn.Module.load_state_dict
+
+    def _filtered_load_state_dict(self, state_dict, strict=False, **kwargs):
+        model_state = self.state_dict()
+        filtered = {}
+        skipped = []
+        for k, v in state_dict.items():
+            if k in model_state and model_state[k].shape != v.shape:
+                skipped.append(f"{k}: checkpoint {v.shape} vs model {model_state[k].shape}")
+            else:
+                filtered[k] = v
+        if skipped:
+            print(f"[load_checkpoint] Skipped {len(skipped)} shape-mismatched keys:")
+            for s in skipped:
+                print(f"  {s}")
+        return _orig_load_state_dict(self, filtered, strict=False, **kwargs)
+
+    _torch.nn.Module.load_state_dict = _filtered_load_state_dict
+    try:
+        result = _orig_load_checkpoint(model, args, *a, **kw)
+    finally:
+        _torch.nn.Module.load_state_dict = _orig_load_state_dict
+    return result
+
+sat_model_io.load_checkpoint = _patched_load_checkpoint
+# Also patch the reference used by deepspeed_training
+import sat.training.deepspeed_training as _ds_training
+_ds_training.load_checkpoint = _patched_load_checkpoint
 
 from sgm.util import get_obj_from_str, isheatmap   # 工具函数：按字符串找类、判断是否热图
 from diffusion_video import SATVideoDiffusionEngine # 模型类（扩散模型主体）
