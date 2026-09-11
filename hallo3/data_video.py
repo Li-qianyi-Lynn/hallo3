@@ -495,7 +495,7 @@ class SFTDataset(Dataset):
                 bbox = json.load(f)
 
             # 加载人脸 embedding（预先用人脸模型提取好存成 .pt 文件）
-            face_emb = torch.load(face_emb_path)
+            face_emb = torch.load(face_emb_path, weights_only=False)
             if not isinstance(face_emb, torch.Tensor):
                 face_emb = torch.tensor(face_emb)  # 兼容 numpy array 格式
 
@@ -569,7 +569,7 @@ class SFTDataset(Dataset):
             face_emb_path = video_meta["face_emb_path"]
             caption = str(video_meta["caption"])
 
-            face_emb = torch.load(face_emb_path)
+            face_emb = torch.load(face_emb_path, weights_only=False)
             if not isinstance(face_emb, torch.Tensor):
                 face_emb = torch.tensor(face_emb)
 
@@ -708,14 +708,14 @@ class Stage2_SFTDataset(Dataset):
             with open(mask_json, 'r', encoding='utf-8') as f:
                 bbox = json.load(f)
             
-            face_emb = torch.load(face_emb_path)
+            face_emb = torch.load(face_emb_path, weights_only=False)
             if not isinstance(face_emb, torch.Tensor):
                 face_emb = torch.tensor(face_emb)
                 
             audio_emb_path = video_meta[
                 f"{self.audio_type}_emb_{self.audio_model}_{self.audio_features}"
             ]
-            audio_emb = torch.load(audio_emb_path)
+            audio_emb = torch.load(audio_emb_path, weights_only=False)
             margin_indices = (
                 torch.arange(2 * self.audio_margin + 1) - self.audio_margin
             )  # Generates [-2, -1, 0, 1, 2]
@@ -794,7 +794,7 @@ class Stage2_SFTDataset(Dataset):
             face_emb_path = video_meta["face_emb_path"]
             caption = str(video_meta["caption"])
             
-            face_emb = torch.load(face_emb_path)
+            face_emb = torch.load(face_emb_path, weights_only=False)
             if not isinstance(face_emb, torch.Tensor):
                 face_emb = torch.tensor(face_emb)
             
@@ -802,7 +802,7 @@ class Stage2_SFTDataset(Dataset):
             audio_emb_path = video_meta[
                 f"{self.audio_type}_emb_{self.audio_model}_{self.audio_features}"
             ]
-            audio_emb = torch.load(audio_emb_path)
+            audio_emb = torch.load(audio_emb_path, weights_only=False)
             margin_indices = (
                 torch.arange(2 * self.audio_margin + 1) - self.audio_margin
             )  # Generates [-2, -1, 0, 1, 2]
