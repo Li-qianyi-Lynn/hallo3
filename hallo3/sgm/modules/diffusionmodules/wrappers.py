@@ -23,7 +23,8 @@ class IdentityWrapper(nn.Module):
 class OpenAIWrapper(IdentityWrapper):
     def forward(self, x: torch.Tensor, t: torch.Tensor, c: dict, **kwargs) -> torch.Tensor:
         for key in c:
-            c[key] = c[key].to(self.dtype)
+            if c[key] is not None:
+                c[key] = c[key].to(self.dtype)
             # print(key)
         
         # assert kwargs.get("audio_emb", None) != None
