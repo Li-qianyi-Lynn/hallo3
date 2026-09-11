@@ -17,6 +17,9 @@ from einops import rearrange
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from hallo3.sgm.models.ltx_audio_vae import AudioEncoder, AudioProcessor, Audio, AudioLatentShape
+from hallo3.sgm.models.ltx_audio_vae.normalization import NormType
+from hallo3.sgm.models.ltx_audio_vae.causality_axis import CausalityAxis
+from hallo3.sgm.models.ltx_audio_vae.attention import AttentionType
 
 
 def load_audio_encoder(checkpoint_path: str, device: str = "cuda") -> AudioEncoder:
@@ -34,8 +37,8 @@ def load_audio_encoder(checkpoint_path: str, device: str = "cuda") -> AudioEncod
         dropout=0.0,
         resamp_with_conv=True,
         in_channels=2,
-        norm_type="pixel",
-        causality_axis="height",
+        norm_type=NormType.PIXEL,
+        causality_axis=CausalityAxis.HEIGHT,
         sample_rate=16000,
         mel_hop_length=160,
         n_fft=1024,
