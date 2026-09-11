@@ -168,6 +168,10 @@ def process_audio_emb(audio_emb):
 
     audio_emb = torch.stack(concatenated_tensors, dim=0)
 
+    # LTX-2 VAE embeddings: (T, 5, 128) → unsqueeze blocks dim → (T, 5, 1, 128)
+    if audio_emb.dim() == 3:
+        audio_emb = audio_emb.unsqueeze(2)
+
     return audio_emb
 
 def resize_for_square_padding(arr, image_size):

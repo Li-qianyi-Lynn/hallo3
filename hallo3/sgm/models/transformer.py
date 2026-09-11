@@ -346,8 +346,8 @@ class AudioProjModel(torch.nn.Module):
     def __init__(
         self,
         seq_len=5,
-        blocks=12,  # add a new parameter blocks
-        channels=768,  # add a new parameter channels
+        blocks=1,  # LTX-2 VAE: single latent layer (was 12 for wav2vec)
+        channels=128,  # LTX-2 VAE: 8ch × 16mel = 128 (was 768 for wav2vec)
         intermediate_dim=512,
         output_dim=768,
         context_tokens=32

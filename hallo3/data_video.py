@@ -744,14 +744,19 @@ class Stage2_SFTDataset(Dataset):
             center_indices = ori_indices.unsqueeze(1) + margin_indices.unsqueeze(0)
             audio_tensor = audio_emb[center_indices]
 
+            # LTX-2 VAE embeddings are (T, 128) → window gives (frames, 5, 128)
+            # Need to unsqueeze blocks dim → (frames, 5, 1, 128) for AudioProjModel
+            if audio_tensor.dim() == 3:
+                audio_tensor = audio_tensor.unsqueeze(2)
+
             if random.random() < 0.05:
                 audio_tensor = torch.zeros_like(audio_tensor)
 
             ref_idx = random.randint(
-                    0, 
+                    0,
                     ori_vlen-1
                 )
-            
+
             ref_image = vr[ref_idx]
             tensor_ref = torch.from_numpy(ref_image) if type(ref_image) is not torch.Tensor else ref_image
             tensor_ref = tensor_ref.permute(2, 0, 1).unsqueeze(0)
@@ -826,19 +831,24 @@ class Stage2_SFTDataset(Dataset):
             center_indices = ori_indices.unsqueeze(1) + margin_indices.unsqueeze(0)
             audio_tensor = audio_emb[center_indices]
 
+            # LTX-2 VAE embeddings are (T, 128) → window gives (frames, 5, 128)
+            # Need to unsqueeze blocks dim → (frames, 5, 1, 128) for AudioProjModel
+            if audio_tensor.dim() == 3:
+                audio_tensor = audio_tensor.unsqueeze(2)
+
             if random.random() < 0.05:
                 audio_tensor = torch.zeros_like(audio_tensor)
 
             ref_idx = random.randint(
-                    0, 
+                    0,
                     ori_vlen-1
                 )
-            
+
             ref_image = vr[ref_idx]
             tensor_ref = torch.from_numpy(ref_image) if type(ref_image) is not torch.Tensor else ref_image
             tensor_ref = tensor_ref.permute(2, 0, 1).unsqueeze(0)
             _, _, h, w = tensor_ref.shape
-            
+
             try:
                 mask_path = video_meta["face_mask_union_path"]
             except:
