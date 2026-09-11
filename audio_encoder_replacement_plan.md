@@ -129,7 +129,7 @@ Cross-Attention in DiT                       ← 保持不变
 pip install huggingface_hub
 huggingface-cli download Lightricks/LTX-2.5 \
     vae/ltx-2.5-audio-vae-bf16.safetensors \
-    --local-dir /scratch/li.qianyi/pretrained_models/ltx2.5
+    --local-dir /scratch/li_qiany_neu/pretrained_models/ltx2.5
 ```
 
 - HuggingFace 仓库: `Lightricks/LTX-2.5`
