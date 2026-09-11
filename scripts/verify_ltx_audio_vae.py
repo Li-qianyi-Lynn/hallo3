@@ -64,14 +64,30 @@ def load_audio_encoder(checkpoint_path: str, device: str = "cuda") -> AudioEncod
 
     print(f"Matched {len(encoder_state_dict)} keys for encoder")
 
+    # Debug: 打印 checkpoint 中 mid/attn 相关的 key
+    print("\nCheckpoint keys containing 'mid' or 'attn':")
+    for key in sorted(all_weights.keys()):
+        if "mid" in key or "attn" in key:
+            print(f"  {key}")
+
+    print("\nExtracted encoder keys containing 'mid' or 'attn':")
+    for key in sorted(encoder_state_dict.keys()):
+        if "mid" in key or "attn" in key:
+            print(f"  {key}")
+
+    print("\nModel expected keys containing 'mid' or 'attn':")
+    for key in sorted(encoder.state_dict().keys()):
+        if "mid" in key or "attn" in key:
+            print(f"  {key}")
+
     # 加载权重
     missing, unexpected = encoder.load_state_dict(encoder_state_dict, strict=False)
     if missing:
-        print(f"WARNING - Missing keys: {missing}")
+        print(f"\nWARNING - Missing keys: {missing}")
     if unexpected:
-        print(f"WARNING - Unexpected keys: {unexpected}")
+        print(f"\nWARNING - Unexpected keys: {unexpected}")
     if not missing and not unexpected:
-        print("All keys matched perfectly!")
+        print("\nAll keys matched perfectly!")
 
     encoder = encoder.to(device=device, dtype=torch.bfloat16)
     encoder.eval()
