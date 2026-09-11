@@ -10,7 +10,7 @@
 
 module load miniforge3
 module load cuda
-conda activate hallo3
+source activate hallo3
 
 cd ~/hallo3/hallo3
 
