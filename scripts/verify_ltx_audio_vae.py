@@ -44,6 +44,7 @@ def load_audio_encoder(checkpoint_path: str, device: str = "cuda") -> AudioEncod
         n_fft=1024,
         is_causal=True,
         mel_bins=64,
+        mid_block_add_attention=False,
     )
 
     # 加载 safetensors
