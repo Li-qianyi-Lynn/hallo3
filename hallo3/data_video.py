@@ -712,45 +712,54 @@ class Stage2_SFTDataset(Dataset):
             if not isinstance(face_emb, torch.Tensor):
                 face_emb = torch.tensor(face_emb)
                 
-            audio_emb_path = video_meta[
-                f"{self.audio_type}_emb_{self.audio_model}_{self.audio_features}"
-            ]
+            audio_emb_key = f"{self.audio_type}_emb_{self.audio_model}_{self.audio_features}"
+            audio_emb_path = video_meta[audio_emb_key]
             audio_emb = torch.load(audio_emb_path, weights_only=False)
+            print(f"[AUDIO_DEBUG] Stage2_SFTDataset[bbox分支] 加载 audio_emb: key='{audio_emb_key}', path={audio_emb_path}")
+            print(f"[AUDIO_DEBUG]   audio_emb 原始: shape={audio_emb.shape}, dtype={audio_emb.dtype}")
             margin_indices = (
                 torch.arange(2 * self.audio_margin + 1) - self.audio_margin
             )  # Generates [-2, -1, 0, 1, 2]
-            
+            print(f"[AUDIO_DEBUG]   audio_margin={self.audio_margin}, margin_indices={margin_indices.tolist()}")
+
             vr = VideoReader(uri=video_path, height=-1, width=-1)
             ori_vlen = len(vr)
-            
+
             sample_len = self.max_num_frames * self.frame_interval
 
             assert ori_vlen > sample_len+self.audio_margin, video_path
             start = random.randint(
-                    self.skip_frms_num, 
+                    self.skip_frms_num,
                     ori_vlen - sample_len - self.audio_margin - 1
                 )
-            
+
             end = min(start + self.max_num_frames * self.frame_interval, ori_vlen)
             ori_indices = np.arange(start, end, self.frame_interval).astype(int)
             temp_frms = vr.get_batch(np.arange(start, end))
             assert temp_frms is not None
             tensor_frms = torch.from_numpy(temp_frms) if type(temp_frms) is not torch.Tensor else temp_frms
-            
+
             ori_indices = torch.from_numpy(ori_indices)
             new_indices = torch.tensor((ori_indices - start).tolist())
             tensor_frms = tensor_frms[new_indices]
-            
+            print(f"[AUDIO_DEBUG]   视频采样: start={start}, end={end}, frame_interval={self.frame_interval}, ori_indices range=[{ori_indices[0]},{ori_indices[-1]}], num_frames={len(ori_indices)}")
+
             center_indices = ori_indices.unsqueeze(1) + margin_indices.unsqueeze(0)
+            print(f"[AUDIO_DEBUG]   center_indices shape={center_indices.shape}, range=[{center_indices.min()},{center_indices.max()}]")
             audio_tensor = audio_emb[center_indices]
+            print(f"[AUDIO_DEBUG]   audio_tensor (窗口采样后): shape={audio_tensor.shape}, dim={audio_tensor.dim()}")
 
             # LTX-2 VAE embeddings are (T, 128) → window gives (frames, 5, 128)
             # Need to unsqueeze blocks dim → (frames, 5, 1, 128) for AudioProjModel
             if audio_tensor.dim() == 3:
                 audio_tensor = audio_tensor.unsqueeze(2)
+                print(f"[AUDIO_DEBUG]   unsqueeze(2) 补 blocks 维度后: shape={audio_tensor.shape}  (VAE路径)")
+            else:
+                print(f"[AUDIO_DEBUG]   无需 unsqueeze (Wav2Vec路径): shape={audio_tensor.shape}")
 
             if random.random() < 0.05:
                 audio_tensor = torch.zeros_like(audio_tensor)
+                print(f"[AUDIO_DEBUG]   ⚠️ 音频 dropout 触发! audio_tensor 置零")
 
             ref_idx = random.randint(
                     0,
@@ -772,11 +781,15 @@ class Stage2_SFTDataset(Dataset):
             
             assert tensor_frms.shape[0]==self.max_num_frames
             assert tensor_frms.shape[0]==audio_tensor.shape[0], print(tensor_frms.shape[0], audio_tensor.shape[0])
-                
+
             mask_ref = (mask_ref - 127.5) / 127.5
             tensor_frms = (tensor_frms - 127.5) / 127.5
             tensor_ref = (tensor_ref - 127.5) / 127.5
-            
+
+            print(f"[AUDIO_DEBUG] Stage2_SFTDataset[bbox分支] 最终输出:")
+            print(f"[AUDIO_DEBUG]   mp4={tensor_frms.shape}, ref_image={tensor_ref.shape}, face_emb={face_emb.shape}, mask_ref={mask_ref.shape}")
+            print(f"[AUDIO_DEBUG]   ★ audio_emb={audio_tensor.shape} dtype={audio_tensor.dtype}  (num_frames, window, blocks, channels)")
+
             item = {
                 "mp4": tensor_frms,
                 "txt": caption,
@@ -787,7 +800,7 @@ class Stage2_SFTDataset(Dataset):
                 "mask_ref": mask_ref,
                 "audio_emb": audio_tensor
             }
-            
+
         else:
             video_path = video_meta["video_path"]
 
@@ -799,45 +812,54 @@ class Stage2_SFTDataset(Dataset):
                 face_emb = torch.tensor(face_emb)
             
                 
-            audio_emb_path = video_meta[
-                f"{self.audio_type}_emb_{self.audio_model}_{self.audio_features}"
-            ]
+            audio_emb_key = f"{self.audio_type}_emb_{self.audio_model}_{self.audio_features}"
+            audio_emb_path = video_meta[audio_emb_key]
             audio_emb = torch.load(audio_emb_path, weights_only=False)
+            print(f"[AUDIO_DEBUG] Stage2_SFTDataset[mask分支] 加载 audio_emb: key='{audio_emb_key}', path={audio_emb_path}")
+            print(f"[AUDIO_DEBUG]   audio_emb 原始: shape={audio_emb.shape}, dtype={audio_emb.dtype}")
             margin_indices = (
                 torch.arange(2 * self.audio_margin + 1) - self.audio_margin
             )  # Generates [-2, -1, 0, 1, 2]
+            print(f"[AUDIO_DEBUG]   audio_margin={self.audio_margin}, margin_indices={margin_indices.tolist()}")
 
             vr = VideoReader(uri=video_path, height=-1, width=-1)
             ori_vlen = len(vr)
-            
+
             sample_len = self.max_num_frames * self.frame_interval
 
             assert ori_vlen > sample_len+self.audio_margin, video_path
             start = random.randint(
-                    self.skip_frms_num, 
+                    self.skip_frms_num,
                     ori_vlen - sample_len - self.audio_margin - 1
                 )
-            
+
             end = min(start + self.max_num_frames * self.frame_interval, ori_vlen)
             ori_indices = np.arange(start, end, self.frame_interval).astype(int)
             temp_frms = vr.get_batch(np.arange(start, end))
             assert temp_frms is not None
             tensor_frms = torch.from_numpy(temp_frms) if type(temp_frms) is not torch.Tensor else temp_frms
-            
+
             ori_indices = torch.from_numpy(ori_indices)
             new_indices = torch.tensor((ori_indices - start).tolist())
             tensor_frms = tensor_frms[new_indices]
-            
+            print(f"[AUDIO_DEBUG]   视频采样: start={start}, end={end}, frame_interval={self.frame_interval}, ori_indices range=[{ori_indices[0]},{ori_indices[-1]}], num_frames={len(ori_indices)}")
+
             center_indices = ori_indices.unsqueeze(1) + margin_indices.unsqueeze(0)
+            print(f"[AUDIO_DEBUG]   center_indices shape={center_indices.shape}, range=[{center_indices.min()},{center_indices.max()}]")
             audio_tensor = audio_emb[center_indices]
+            print(f"[AUDIO_DEBUG]   audio_tensor (窗口采样后): shape={audio_tensor.shape}, dim={audio_tensor.dim()}")
 
             # LTX-2 VAE embeddings are (T, 128) → window gives (frames, 5, 128)
             # Need to unsqueeze blocks dim → (frames, 5, 1, 128) for AudioProjModel
             if audio_tensor.dim() == 3:
                 audio_tensor = audio_tensor.unsqueeze(2)
+                print(f"[AUDIO_DEBUG]   unsqueeze(2) 补 blocks 维度后: shape={audio_tensor.shape}  (VAE路径)")
+            else:
+                print(f"[AUDIO_DEBUG]   无需 unsqueeze (Wav2Vec路径): shape={audio_tensor.shape}")
 
             if random.random() < 0.05:
                 audio_tensor = torch.zeros_like(audio_tensor)
+                print(f"[AUDIO_DEBUG]   ⚠️ 音频 dropout 触发! audio_tensor 置零")
 
             ref_idx = random.randint(
                     0,
@@ -865,11 +887,15 @@ class Stage2_SFTDataset(Dataset):
             
             assert tensor_frms.shape[0]==self.max_num_frames
             assert tensor_frms.shape[0]==audio_tensor.shape[0], print(tensor_frms.shape[0], audio_tensor.shape[0])
-            
+
             tensor_frms = (tensor_frms - 127.5) / 127.5
             tensor_ref = (tensor_ref - 127.5) / 127.5
             mask_ref = (mask_ref - 127.5) / 127.5
-            
+
+            print(f"[AUDIO_DEBUG] Stage2_SFTDataset[mask分支] 最终输出:")
+            print(f"[AUDIO_DEBUG]   mp4={tensor_frms.shape}, ref_image={tensor_ref.shape}, face_emb={face_emb.shape}, mask_ref={mask_ref.shape}")
+            print(f"[AUDIO_DEBUG]   ★ audio_emb={audio_tensor.shape} dtype={audio_tensor.dtype}  (num_frames, window, blocks, channels)")
+
             item = {
                 "mp4": tensor_frms,
                 "txt": caption,

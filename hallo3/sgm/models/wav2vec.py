@@ -72,9 +72,14 @@ class Wav2VecModel(Wav2Vec2Model):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+        print(f"[AUDIO_DEBUG] Wav2VecModel.forward(): 输入 input_values shape={input_values.shape}, seq_len={seq_len}")
+
         extract_features = self.feature_extractor(input_values)
+        print(f"[AUDIO_DEBUG]   feature_extractor 后: shape={extract_features.shape}")
         extract_features = extract_features.transpose(1, 2)
+        print(f"[AUDIO_DEBUG]   transpose(1,2) 后: shape={extract_features.shape}")
         extract_features = linear_interpolation(extract_features, seq_len=seq_len)
+        print(f"[AUDIO_DEBUG]   linear_interpolation 后: shape={extract_features.shape}")
 
         if attention_mask is not None:
             # compute reduced attention_mask corresponding to feature vectors
@@ -83,6 +88,7 @@ class Wav2VecModel(Wav2Vec2Model):
             )
 
         hidden_states, extract_features = self.feature_projection(extract_features)
+        print(f"[AUDIO_DEBUG]   feature_projection 后: hidden_states shape={hidden_states.shape}")
         hidden_states = self._mask_hidden_states(
             hidden_states, mask_time_indices=mask_time_indices, attention_mask=attention_mask
         )
@@ -96,6 +102,9 @@ class Wav2VecModel(Wav2Vec2Model):
         )
 
         hidden_states = encoder_outputs[0]
+        print(f"[AUDIO_DEBUG]   encoder 后: last_hidden_state shape={hidden_states.shape}")
+        if hasattr(encoder_outputs, 'hidden_states') and encoder_outputs.hidden_states is not None:
+            print(f"[AUDIO_DEBUG]   encoder 后: num_hidden_states={len(encoder_outputs.hidden_states)}, 每层 shape={encoder_outputs.hidden_states[0].shape}")
 
         if self.adapter is not None:
             hidden_states = self.adapter(hidden_states)
@@ -124,9 +133,13 @@ class Wav2VecModel(Wav2Vec2Model):
         Returns:
         extracted_features (torch.Tensor): The extracted features from the input values.
         """
+        print(f"[AUDIO_DEBUG] Wav2VecModel.feature_extract(): 输入 input_values shape={input_values.shape}, seq_len={seq_len}")
         extract_features = self.feature_extractor(input_values)
+        print(f"[AUDIO_DEBUG]   feature_extractor 后: shape={extract_features.shape}")
         extract_features = extract_features.transpose(1, 2)
+        print(f"[AUDIO_DEBUG]   transpose(1,2) 后: shape={extract_features.shape}")
         extract_features = linear_interpolation(extract_features, seq_len=seq_len)
+        print(f"[AUDIO_DEBUG]   linear_interpolation 后: shape={extract_features.shape}")
 
         return extract_features
 
@@ -155,6 +168,8 @@ class Wav2VecModel(Wav2Vec2Model):
         """
         self.config.output_attentions = True
 
+        print(f"[AUDIO_DEBUG] Wav2VecModel.encode(): 输入 extract_features shape={extract_features.shape}")
+
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
@@ -167,6 +182,7 @@ class Wav2VecModel(Wav2Vec2Model):
             )
 
         hidden_states, extract_features = self.feature_projection(extract_features)
+        print(f"[AUDIO_DEBUG]   feature_projection 后: hidden_states shape={hidden_states.shape}")
         hidden_states = self._mask_hidden_states(
             hidden_states, mask_time_indices=mask_time_indices, attention_mask=attention_mask
         )
@@ -180,6 +196,7 @@ class Wav2VecModel(Wav2Vec2Model):
         )
 
         hidden_states = encoder_outputs[0]
+        print(f"[AUDIO_DEBUG]   encoder 后: last_hidden_state shape={hidden_states.shape}")
 
         if self.adapter is not None:
             hidden_states = self.adapter(hidden_states)
@@ -204,6 +221,9 @@ def linear_interpolation(features, seq_len):
     Returns:
         torch.Tensor: The interpolated features.
     """
+    print(f"[AUDIO_DEBUG] linear_interpolation(): 输入 shape={features.shape}, target seq_len={seq_len}")
     features = features.transpose(1, 2)
     output_features = F.interpolate(features, size=seq_len, align_corners=True, mode='linear')
-    return output_features.transpose(1, 2)
+    output_features = output_features.transpose(1, 2)
+    print(f"[AUDIO_DEBUG]   interpolation 输出: shape={output_features.shape}")
+    return output_features

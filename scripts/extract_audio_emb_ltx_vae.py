@@ -87,21 +87,31 @@ def extract_embedding(
     """
     # Load audio as mono, then duplicate to stereo
     speech_array, sr = librosa.load(audio_path, sr=16000, mono=True)
+    print(f"[AUDIO_DEBUG] extract_embedding(): 加载音频 {audio_path}")
+    print(f"[AUDIO_DEBUG]   raw audio: samples={len(speech_array)}, sr={sr}, duration={len(speech_array)/sr:.2f}s")
+
     # (samples,) → (1, 2, samples) stereo
     waveform = torch.from_numpy(speech_array).float().unsqueeze(0).unsqueeze(0)
     waveform = waveform.repeat(1, 2, 1)  # mono → stereo
+    print(f"[AUDIO_DEBUG]   stereo waveform: shape={waveform.shape}  (batch, channels, samples)")
     waveform = waveform.to(device=device)
 
     audio = Audio(waveform=waveform, sampling_rate=16000)
 
     with torch.no_grad():
         mel = processor.waveform_to_mel(audio)
+        print(f"[AUDIO_DEBUG]   mel spectrogram: shape={mel.shape}  (batch, ch, time, n_mels)")
+
         latent = encoder(mel.to(dtype=torch.bfloat16))
+        print(f"[AUDIO_DEBUG]   encoder latent: shape={latent.shape}  (batch, z_ch, T_latent, mel_bins)")
+
         # latent: (1, 8, T_latent, 16)
         tokens = rearrange(latent, "b c t f -> b t (c f)")
+        print(f"[AUDIO_DEBUG]   rearrange 后 tokens: shape={tokens.shape}  (batch, T_latent, z_ch*mel_bins)")
         # tokens: (1, T_latent, 128)
 
     audio_emb = tokens.squeeze(0).float().cpu()
+    print(f"[AUDIO_DEBUG]   ★ 最终 audio_emb: shape={audio_emb.shape}  (T_latent, 128)")
     # (T, 128)
     return audio_emb
 

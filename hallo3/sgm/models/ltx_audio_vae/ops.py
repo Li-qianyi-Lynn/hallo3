@@ -47,12 +47,19 @@ class AudioProcessor(nn.Module):
     ) -> torch.Tensor:
         """Convert waveform to log-mel spectrogram [batch, channels, time, n_mels]."""
         waveform = self.resample_audio(audio).waveform
+        print(f"[AUDIO_DEBUG] AudioProcessor.waveform_to_mel(): 输入 waveform shape={waveform.shape}, dtype={waveform.dtype}")
+        print(f"[AUDIO_DEBUG]   MelSpectrogram 参数: sr={self.target_sample_rate}, n_fft={self.mel_transform.n_fft}, hop={self.mel_transform.hop_length}, n_mels={self.mel_transform.n_mels}")
 
         mel = self.mel_transform(waveform)
+        print(f"[AUDIO_DEBUG]   MelSpectrogram 输出: shape={mel.shape}  (b, ch, n_mels, time)")
+
         mel = torch.log(torch.clamp(mel, min=1e-5))
+        print(f"[AUDIO_DEBUG]   log-mel: shape={mel.shape}, min={mel.min().item():.4f}, max={mel.max().item():.4f}")
 
         mel = mel.to(device=waveform.device, dtype=waveform.dtype)
-        return mel.permute(0, 1, 3, 2).contiguous()
+        result = mel.permute(0, 1, 3, 2).contiguous()
+        print(f"[AUDIO_DEBUG]   permute(0,1,3,2) 最终输出: shape={result.shape}  (b, ch, time, n_mels)")
+        return result
 
 
 class PerChannelStatistics(nn.Module):
@@ -72,4 +79,9 @@ class PerChannelStatistics(nn.Module):
         return (x * self.get_buffer("std-of-means").to(x)) + self.get_buffer("mean-of-means").to(x)
 
     def normalize(self, x: torch.Tensor) -> torch.Tensor:
-        return (x - self.get_buffer("mean-of-means").to(x)) / self.get_buffer("std-of-means").to(x)
+        print(f"[AUDIO_DEBUG] PerChannelStatistics.normalize(): 输入 shape={x.shape}, dtype={x.dtype}")
+        std = self.get_buffer("std-of-means")
+        mean = self.get_buffer("mean-of-means")
+        print(f"[AUDIO_DEBUG]   stats: mean-of-means shape={mean.shape}, std-of-means shape={std.shape}")
+        print(f"[AUDIO_DEBUG]   stats: mean range=[{mean.min().item():.4f}, {mean.max().item():.4f}], std range=[{std.min().item():.4f}, {std.max().item():.4f}]")
+        return (x - mean.to(x)) / std.to(x)

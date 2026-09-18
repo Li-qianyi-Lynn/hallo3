@@ -161,6 +161,9 @@ class SATVideoDiffusionEngine(nn.Module):
 
     def forward(self, x, batch):
         # self.ref_model.to(x.device)
+        print(f"[AUDIO_DEBUG] SATVideoDiffusionEngine.forward(): x shape={x.shape}")
+        if "audio_emb" in batch:
+            print(f"[AUDIO_DEBUG]   batch['audio_emb'] shape={batch['audio_emb'].shape} → 传入 loss_fn")
 
         loss = self.loss_fn(self.model, self.ref_model, self.denoiser, self.conditioner, x, batch)
         loss_mean = loss.mean()
@@ -193,6 +196,11 @@ class SATVideoDiffusionEngine(nn.Module):
 
     def shared_step(self, batch: Dict, mask_rate=0.1) -> Any:
         x = self.get_input(batch)
+        if "audio_emb" in batch:
+            print(f"[AUDIO_DEBUG] shared_step(): batch['audio_emb'] shape={batch['audio_emb'].shape}, dtype={batch['audio_emb'].dtype}")
+        else:
+            print(f"[AUDIO_DEBUG] shared_step(): batch 中无 'audio_emb' (Stage 1 模式)")
+        print(f"[AUDIO_DEBUG] shared_step(): x (video) shape={x.shape}, dtype={x.dtype}")
 
         if self.lr_scale is not None:
             lr_x = F.interpolate(x, scale_factor=1 / self.lr_scale, mode="bilinear", align_corners=False)
@@ -329,7 +337,11 @@ class SATVideoDiffusionEngine(nn.Module):
             self.model, input, sigma, c, concat_images=concat_images, **addtional_model_inputs
         )
 
-        samples = self.sampler(denoiser, randn, cond, uc=uc, scale=scale, scale_emb=scale_emb, 
+        if audio_emb is not None:
+            print(f"[AUDIO_DEBUG] sample(): audio_emb shape={audio_emb.shape}, dtype={audio_emb.dtype} → 传入 sampler")
+        else:
+            print(f"[AUDIO_DEBUG] sample(): audio_emb=None")
+        samples = self.sampler(denoiser, randn, cond, uc=uc, scale=scale, scale_emb=scale_emb,
                                audio_emb=audio_emb, face_emb=face_emb)
         samples = samples.to(self.dtype)
         return samples

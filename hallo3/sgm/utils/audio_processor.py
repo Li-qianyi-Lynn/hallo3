@@ -101,27 +101,40 @@ class AudioProcessor:
 
         # 2. extract wav2vec features
         speech_array, sampling_rate = librosa.load(vocal_audio_file, sr=self.sample_rate)
+        print(f"[AUDIO_DEBUG] AudioProcessor.preprocess(): 加载音频 {vocal_audio_file}")
+        print(f"[AUDIO_DEBUG]   raw audio: samples={len(speech_array)}, sr={sampling_rate}, duration={len(speech_array)/sampling_rate:.2f}s")
+
         audio_feature = np.squeeze(self.wav2vec_feature_extractor(speech_array, sampling_rate=sampling_rate).input_values)
+        print(f"[AUDIO_DEBUG]   wav2vec_feature_extractor 后: shape={audio_feature.shape}, dtype={audio_feature.dtype}")
+
         seq_len = math.ceil(len(audio_feature) / self.sample_rate * fps)
         audio_length = seq_len
+        print(f"[AUDIO_DEBUG]   计算 seq_len: ceil({len(audio_feature)} / {self.sample_rate} * {fps}) = {seq_len}")
 
         audio_feature = torch.from_numpy(audio_feature).float().to(device=self.device)
 
         if clip_length>0 and seq_len % clip_length != 0:
-            audio_feature = torch.nn.functional.pad(audio_feature, (0, int((clip_length - seq_len % clip_length) * (self.sample_rate // fps))), 'constant', 0.0)
+            pad_amount = int((clip_length - seq_len % clip_length) * (self.sample_rate // fps))
+            print(f"[AUDIO_DEBUG]   padding: clip_length={clip_length}, pad_amount={pad_amount}, seq_len {seq_len} → {seq_len + clip_length - seq_len % clip_length}")
+            audio_feature = torch.nn.functional.pad(audio_feature, (0, pad_amount), 'constant', 0.0)
             seq_len += clip_length - seq_len % clip_length
         audio_feature = audio_feature.unsqueeze(0)
+        print(f"[AUDIO_DEBUG]   送入 wav2vec: audio_feature shape={audio_feature.shape}, seq_len={seq_len}")
 
         with torch.no_grad():
             embeddings = self.audio_encoder(audio_feature, seq_len=seq_len, output_hidden_states=True)
         assert len(embeddings) > 0, "Fail to extract audio embedding"
         if self.only_last_features:
             audio_emb = embeddings.last_hidden_state.squeeze()
+            print(f"[AUDIO_DEBUG]   only_last_features=True: audio_emb shape={audio_emb.shape}")
         else:
             audio_emb = torch.stack(embeddings.hidden_states[1:], dim=1).squeeze(0)
+            print(f"[AUDIO_DEBUG]   stack hidden_states[1:] (共{len(embeddings.hidden_states)-1}层): shape={audio_emb.shape}")
             audio_emb = rearrange(audio_emb, "b s d -> s b d")
+            print(f"[AUDIO_DEBUG]   rearrange 后: shape={audio_emb.shape}  (T, 12, 768)")
 
         audio_emb = audio_emb.cpu().detach()
+        print(f"[AUDIO_DEBUG]   ★ preprocess 最终输出: audio_emb shape={audio_emb.shape}, audio_length={audio_length}")
 
         return audio_emb, audio_length
 
@@ -137,13 +150,20 @@ class AudioProcessor:
         speech_array, sampling_rate = librosa.load(
             wav_file, sr=self.sample_rate)
         assert sampling_rate == 16000, "The audio sample rate must be 16000"
+        print(f"[AUDIO_DEBUG] AudioProcessor.get_embedding(): 加载 {wav_file}")
+        print(f"[AUDIO_DEBUG]   raw audio: samples={len(speech_array)}, sr={sampling_rate}, duration={len(speech_array)/sampling_rate:.2f}s")
+
         audio_feature = np.squeeze(self.wav2vec_feature_extractor(
             speech_array, sampling_rate=sampling_rate).input_values)
+        print(f"[AUDIO_DEBUG]   wav2vec_feature_extractor 后: shape={audio_feature.shape}")
+
         seq_len = math.ceil(len(audio_feature) / self.sample_rate * fps)
+        print(f"[AUDIO_DEBUG]   计算 seq_len: ceil({len(audio_feature)} / {self.sample_rate} * {fps}) = {seq_len}")
 
         audio_feature = torch.from_numpy(
             audio_feature).float().to(device=self.device)
         audio_feature = audio_feature.unsqueeze(0)
+        print(f"[AUDIO_DEBUG]   送入 wav2vec: audio_feature shape={audio_feature.shape}, seq_len={seq_len}")
 
         with torch.no_grad():
             embeddings = self.audio_encoder(
@@ -152,12 +172,16 @@ class AudioProcessor:
 
         if self.only_last_features:
             audio_emb = embeddings.last_hidden_state.squeeze()
+            print(f"[AUDIO_DEBUG]   only_last_features=True: audio_emb shape={audio_emb.shape}")
         else:
             audio_emb = torch.stack(
                 embeddings.hidden_states[1:], dim=1).squeeze(0)
+            print(f"[AUDIO_DEBUG]   stack hidden_states[1:] (共{len(embeddings.hidden_states)-1}层): shape={audio_emb.shape}")
             audio_emb = rearrange(audio_emb, "b s d -> s b d")
+            print(f"[AUDIO_DEBUG]   rearrange 后: shape={audio_emb.shape}  (T, 12, 768)")
 
         audio_emb = audio_emb.cpu().detach()
+        print(f"[AUDIO_DEBUG]   ★ get_embedding 最终输出: audio_emb shape={audio_emb.shape}")
 
         return audio_emb
 

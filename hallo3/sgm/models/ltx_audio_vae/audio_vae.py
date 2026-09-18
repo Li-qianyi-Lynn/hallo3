@@ -166,12 +166,23 @@ class AudioEncoder(torch.nn.Module):
         Returns:
             Encoded latent representation of shape (batch, channels, frames, mel_bins)
         """
-        h = self.conv_in(spectrogram)
-        h = self._run_downsampling_path(h)
-        h = run_mid_block(self.mid, h)
-        h = self._finalize_output(h)
+        print(f"[AUDIO_DEBUG] AudioEncoder.forward() 输入 spectrogram: shape={spectrogram.shape}, dtype={spectrogram.dtype}")
 
-        return self._normalize_latents(h)
+        h = self.conv_in(spectrogram)
+        print(f"[AUDIO_DEBUG]   conv_in 后: shape={h.shape}  (Conv2d {self.in_channels}→{self.ch}, k=3, s=1)")
+
+        h = self._run_downsampling_path(h)
+        print(f"[AUDIO_DEBUG]   downsampling_path 后: shape={h.shape}")
+
+        h = run_mid_block(self.mid, h)
+        print(f"[AUDIO_DEBUG]   mid_block 后: shape={h.shape}")
+
+        h = self._finalize_output(h)
+        print(f"[AUDIO_DEBUG]   finalize_output 后 (norm→SiLU→conv_out): shape={h.shape}  (double_z={self.double_z}, z_ch={self.z_channels})")
+
+        result = self._normalize_latents(h)
+        print(f"[AUDIO_DEBUG]   normalize_latents 后 (最终输出): shape={result.shape}")
+        return result
 
     def _run_downsampling_path(self, h: torch.Tensor) -> torch.Tensor:
         for level in range(self.num_resolutions):
@@ -180,9 +191,11 @@ class AudioEncoder(torch.nn.Module):
                 h = stage.block[block_idx](h, temb=None)
                 if stage.attn:
                     h = stage.attn[block_idx](h)
+                print(f"[AUDIO_DEBUG]     downsample level={level} block={block_idx}: shape={h.shape}")
 
             if level != self.num_resolutions - 1:
                 h = stage.downsample(h)
+                print(f"[AUDIO_DEBUG]     downsample level={level} 下采样后: shape={h.shape}")
 
         return h
 
@@ -193,15 +206,21 @@ class AudioEncoder(torch.nn.Module):
 
     def _normalize_latents(self, latent_output: torch.Tensor) -> torch.Tensor:
         means = torch.chunk(latent_output, 2, dim=1)[0]
+        print(f"[AUDIO_DEBUG]     _normalize: chunk 取 means: shape={means.shape}  (从 {latent_output.shape} 沿 dim=1 拆半)")
         latent_shape = AudioLatentShape(
             batch=means.shape[0],
             channels=means.shape[1],
             frames=means.shape[2],
             mel_bins=means.shape[3],
         )
+        print(f"[AUDIO_DEBUG]     _normalize: AudioLatentShape=(b={latent_shape.batch}, c={latent_shape.channels}, t={latent_shape.frames}, f={latent_shape.mel_bins})")
         latent_patched = self.patchifier.patchify(means)
+        print(f"[AUDIO_DEBUG]     _normalize: patchify 后: shape={latent_patched.shape}  (b, t, c*f)")
         latent_normalized = self.per_channel_statistics.normalize(latent_patched)
-        return self.patchifier.unpatchify(latent_normalized, latent_shape)
+        print(f"[AUDIO_DEBUG]     _normalize: normalize 后: shape={latent_normalized.shape}")
+        result = self.patchifier.unpatchify(latent_normalized, latent_shape)
+        print(f"[AUDIO_DEBUG]     _normalize: unpatchify 后: shape={result.shape}  (b, c, t, f)")
+        return result
 
 
 def encode_audio(
@@ -226,7 +245,10 @@ def encode_audio(
             n_fft=audio_encoder.n_fft,
         ).to(device=device)
 
+    print(f"[AUDIO_DEBUG] encode_audio(): 输入 audio.waveform shape={audio.waveform.shape}, sr={audio.sampling_rate}")
     mel_spectrogram = audio_processor.waveform_to_mel(audio.to(device=device))
+    print(f"[AUDIO_DEBUG] encode_audio(): mel_spectrogram shape={mel_spectrogram.shape}, dtype={mel_spectrogram.dtype}")
 
     latent = audio_encoder(mel_spectrogram.to(dtype=dtype))
+    print(f"[AUDIO_DEBUG] encode_audio(): 最终 latent shape={latent.shape}, dtype={latent.dtype}")
     return latent

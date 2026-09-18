@@ -41,10 +41,12 @@ class AudioPatchifier:
         Returns:
             Flattened patch tokens tensor, shape (b, t, c*f).
         """
+        print(f"[AUDIO_DEBUG] AudioPatchifier.patchify(): 输入 shape={audio_latents.shape}  (b, c, t, f)")
         audio_latents = einops.rearrange(
             audio_latents,
             "b c t f -> b t (c f)",
         )
+        print(f"[AUDIO_DEBUG]   patchify 输出: shape={audio_latents.shape}  (b, t, c*f={audio_latents.shape[-1]})")
 
         return audio_latents
 
@@ -61,11 +63,14 @@ class AudioPatchifier:
         Returns:
             Unpatched latent tensor, shape (b, c, t, f).
         """
+        print(f"[AUDIO_DEBUG] AudioPatchifier.unpatchify(): 输入 shape={audio_latents.shape}  (b, t, c*f)")
+        print(f"[AUDIO_DEBUG]   target: channels={output_shape.channels}, mel_bins={output_shape.mel_bins}")
         audio_latents = einops.rearrange(
             audio_latents,
             "b t (c f) -> b c t f",
             c=output_shape.channels,
             f=output_shape.mel_bins,
         )
+        print(f"[AUDIO_DEBUG]   unpatchify 输出: shape={audio_latents.shape}  (b, c, t, f)")
 
         return audio_latents

@@ -98,8 +98,10 @@ def main():
 
         try:
             fps = get_fps(video_path)
+            print(f"[AUDIO_DEBUG] reextract: 处理 {video_path.stem}, fps={fps}, m4a={m4a_path}")
             audio_emb, _ = audio_processor.preprocess(str(m4a_path), fps=fps)
             # audio_emb shape: (T, 12, 768)
+            print(f"[AUDIO_DEBUG]   ★ audio_emb shape={audio_emb.shape}, 保存到 {out_path}")
             assert audio_emb.ndim == 3 and audio_emb.shape[1] == 12, \
                 f"Unexpected shape {audio_emb.shape}"
             torch.save(audio_emb, out_path)
