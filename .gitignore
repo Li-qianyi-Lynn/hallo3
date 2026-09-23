@@ -1,0 +1,10 @@
+# Large data splits (only keep en_4k and en_4k_ids)
+splits/talkvid_english.json
+splits/talkvid_non_english.json
+splits/talkvid_unknown_lang.json
+splits/talkvid_split_stats.json
+splits/youtube_ids_english.txt
+splits/youtube_ids_non_english.txt
+
+# OS
+.DS_Store
