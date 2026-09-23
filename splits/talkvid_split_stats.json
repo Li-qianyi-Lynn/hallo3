@@ -1,0 +1,64 @@
+{
+  "total_clips": 181752,
+  "english_clips": 148223,
+  "non_english_clips": 26097,
+  "excluded_clips": 7432,
+  "english_hours": 207.6,
+  "non_english_hours": 36.6,
+  "languages": {
+    "English": {
+      "clips": 148223,
+      "hours": 207.6,
+      "unique_videos": 4213
+    },
+    "Unknown": {
+      "clips": 7432,
+      "hours": 10.4,
+      "unique_videos": 244
+    },
+    "Chinese": {
+      "clips": 22434,
+      "hours": 31.4,
+      "unique_videos": 883
+    },
+    "French": {
+      "clips": 130,
+      "hours": 0.2,
+      "unique_videos": 3
+    },
+    "Spanish": {
+      "clips": 2213,
+      "hours": 3.1,
+      "unique_videos": 107
+    },
+    "Hindi": {
+      "clips": 955,
+      "hours": 1.3,
+      "unique_videos": 61
+    },
+    "Arabic": {
+      "clips": 33,
+      "hours": 0.0,
+      "unique_videos": 3
+    },
+    "Portuguese": {
+      "clips": 170,
+      "hours": 0.2,
+      "unique_videos": 3
+    },
+    "Other": {
+      "clips": 162,
+      "hours": 0.2,
+      "unique_videos": 5
+    }
+  },
+  "non_english_languages": [
+    "Chinese",
+    "French",
+    "Spanish",
+    "Hindi",
+    "Arabic",
+    "Portuguese",
+    "Other"
+  ]
+}

@@ -285,9 +285,9 @@ def forward_step(data_iterator, model, args, timers, data_class=None):
 
     batch["global_step"] = args.iteration  # 告诉模型当前是第几步
 
-    broad_cast_batch(batch)  # 模型并行时把数据广播给其他 GPU
+    broad_cast_batch(batch)  # 模型并行时把数据广播给其他 GPU，这一步是多卡并行所必需的。单卡不需要
 
-    loss, loss_dict = model.shared_step(batch)  # 模型 forward + 算扩散 loss
+    loss, loss_dict = model.shared_step(batch)  # 模型 forward + 算扩散 loss （diffusion_video.py:197）
 
     return loss, loss_dict  # 返回给 DeepSpeed，由它做 backward + optimizer step
 
