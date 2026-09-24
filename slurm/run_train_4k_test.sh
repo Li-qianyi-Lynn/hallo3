@@ -26,7 +26,7 @@ echo "=========================================="
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 torchrun --standalone --nproc_per_node=2 \
     train_video.py \
-    --base configs/cogvideox_5b_i2v_s2.yaml configs/sft_4k_train.yaml \
+    --base ../configs/cogvideox_5b_i2v_s2.yaml ../configs/sft_4k_train.yaml \
     --seed 42
 
 TRAIN_EXIT=$?

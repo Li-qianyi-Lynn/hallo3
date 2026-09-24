@@ -15,10 +15,10 @@ args:
   save_interval: 500
   log_interval: 1
   train_data: [
-    "data/talkvid_4k.json",
+    "../data/talkvid_4k.json",
   ]
   valid_data: [
-    "data/talkvid_4k.json",
+    "../data/talkvid_4k.json",
   ]
   split: 1,0,0
   num_workers: 8
