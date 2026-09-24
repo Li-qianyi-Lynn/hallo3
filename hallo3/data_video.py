@@ -744,7 +744,13 @@ class Stage2_SFTDataset(Dataset):
             tensor_frms = tensor_frms[new_indices]
             print(f"[AUDIO_DEBUG]   视频采样: start={start}, end={end}, frame_interval={self.frame_interval}, ori_indices range=[{ori_indices[0]},{ori_indices[-1]}], num_frames={len(ori_indices)}")
 
-            center_indices = ori_indices.unsqueeze(1) + margin_indices.unsqueeze(0)
+            # Map video frame indices to audio embedding indices (different temporal resolution)
+            audio_len = audio_emb.shape[0]
+            scaled_indices = (ori_indices.float() / max(ori_vlen, 1) * audio_len).long()
+            scaled_indices = scaled_indices.clamp(0, audio_len - 1)
+            center_indices = scaled_indices.unsqueeze(1) + margin_indices.unsqueeze(0)
+            center_indices = center_indices.clamp(0, audio_len - 1)
+            print(f"[AUDIO_DEBUG]   audio_len={audio_len}, ori_vlen={ori_vlen}, scaled_indices range=[{scaled_indices.min()},{scaled_indices.max()}]")
             print(f"[AUDIO_DEBUG]   center_indices shape={center_indices.shape}, range=[{center_indices.min()},{center_indices.max()}]")
             audio_tensor = audio_emb[center_indices]
             print(f"[AUDIO_DEBUG]   audio_tensor (窗口采样后): shape={audio_tensor.shape}, dim={audio_tensor.dim()}")
@@ -844,7 +850,13 @@ class Stage2_SFTDataset(Dataset):
             tensor_frms = tensor_frms[new_indices]
             print(f"[AUDIO_DEBUG]   视频采样: start={start}, end={end}, frame_interval={self.frame_interval}, ori_indices range=[{ori_indices[0]},{ori_indices[-1]}], num_frames={len(ori_indices)}")
 
-            center_indices = ori_indices.unsqueeze(1) + margin_indices.unsqueeze(0)
+            # Map video frame indices to audio embedding indices (different temporal resolution)
+            audio_len = audio_emb.shape[0]
+            scaled_indices = (ori_indices.float() / max(ori_vlen, 1) * audio_len).long()
+            scaled_indices = scaled_indices.clamp(0, audio_len - 1)
+            center_indices = scaled_indices.unsqueeze(1) + margin_indices.unsqueeze(0)
+            center_indices = center_indices.clamp(0, audio_len - 1)
+            print(f"[AUDIO_DEBUG]   audio_len={audio_len}, ori_vlen={ori_vlen}, scaled_indices range=[{scaled_indices.min()},{scaled_indices.max()}]")
             print(f"[AUDIO_DEBUG]   center_indices shape={center_indices.shape}, range=[{center_indices.min()},{center_indices.max()}]")
             audio_tensor = audio_emb[center_indices]
             print(f"[AUDIO_DEBUG]   audio_tensor (窗口采样后): shape={audio_tensor.shape}, dim={audio_tensor.dim()}")
