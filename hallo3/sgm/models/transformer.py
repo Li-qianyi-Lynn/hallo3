@@ -16,6 +16,7 @@
 
 """Transformer."""
 
+import os
 import math
 import copy
 import torch
@@ -33,6 +34,8 @@ from .transformer_defaults import HOOKS_DEFAULT, standard_attention, split_tenso
 from einops import rearrange
 from .resampler import Resampler
 from icecream import ic
+
+_audio_debug = print if os.environ.get("HALLO3_AUDIO_DEBUG") == "1" else (lambda *a, **k: None)
 
 def zero_module(module):
 
@@ -379,33 +382,33 @@ class AudioProjModel(torch.nn.Module):
 
     def forward(self, audio_embeds):
         # merge
-        print(f"[AUDIO_DEBUG] AudioProjModel.forward(): 输入 audio_embeds shape={audio_embeds.shape}, dtype={audio_embeds.dtype}")
-        print(f"[AUDIO_DEBUG]   模型参数: seq_len={self.seq_len}, blocks={self.blocks}, channels={self.channels}, input_dim={self.input_dim}")
-        print(f"[AUDIO_DEBUG]   模型参数: intermediate_dim={self.intermediate_dim}, context_tokens={self.context_tokens}, output_dim={self.output_dim}")
+        _audio_debug(f"[AUDIO_DEBUG] AudioProjModel.forward(): 输入 audio_embeds shape={audio_embeds.shape}, dtype={audio_embeds.dtype}")
+        _audio_debug(f"[AUDIO_DEBUG]   模型参数: seq_len={self.seq_len}, blocks={self.blocks}, channels={self.channels}, input_dim={self.input_dim}")
+        _audio_debug(f"[AUDIO_DEBUG]   模型参数: intermediate_dim={self.intermediate_dim}, context_tokens={self.context_tokens}, output_dim={self.output_dim}")
 
         video_length = audio_embeds.shape[1]
         audio_embeds = rearrange(audio_embeds, "bz f w b c -> (bz f) w b c")
-        print(f"[AUDIO_DEBUG]   rearrange 后 (bz*f, w, b, c): shape={audio_embeds.shape}")
+        _audio_debug(f"[AUDIO_DEBUG]   rearrange 后 (bz*f, w, b, c): shape={audio_embeds.shape}")
 
         batch_size, window_size, blocks, channels = audio_embeds.shape
         audio_embeds = audio_embeds.view(batch_size, window_size * blocks * channels)
-        print(f"[AUDIO_DEBUG]   flatten 后: shape={audio_embeds.shape}  ({window_size}*{blocks}*{channels}={window_size*blocks*channels})")
+        _audio_debug(f"[AUDIO_DEBUG]   flatten 后: shape={audio_embeds.shape}  ({window_size}*{blocks}*{channels}={window_size*blocks*channels})")
 
         audio_embeds = torch.relu(self.proj1(audio_embeds))
-        print(f"[AUDIO_DEBUG]   proj1+ReLU 后: shape={audio_embeds.shape}")
+        _audio_debug(f"[AUDIO_DEBUG]   proj1+ReLU 后: shape={audio_embeds.shape}")
         audio_embeds = torch.relu(self.proj2(audio_embeds))
-        print(f"[AUDIO_DEBUG]   proj2+ReLU 后: shape={audio_embeds.shape}")
+        _audio_debug(f"[AUDIO_DEBUG]   proj2+ReLU 后: shape={audio_embeds.shape}")
 
         context_tokens = self.proj3(audio_embeds).reshape(
             batch_size, self.context_tokens, self.output_dim
         )
-        print(f"[AUDIO_DEBUG]   proj3+reshape 后: shape={context_tokens.shape}  ({self.context_tokens} context tokens × {self.output_dim})")
+        _audio_debug(f"[AUDIO_DEBUG]   proj3+reshape 后: shape={context_tokens.shape}  ({self.context_tokens} context tokens × {self.output_dim})")
 
         # context_tokens = self.norm(context_tokens)
         context_tokens = rearrange(
             context_tokens, "(bz f) m c -> bz f (m c)", f=video_length
         )
-        print(f"[AUDIO_DEBUG]   rearrange 回 batch 后: shape={context_tokens.shape}  (bz, f={video_length}, m*c)")
+        _audio_debug(f"[AUDIO_DEBUG]   rearrange 回 batch 后: shape={context_tokens.shape}  (bz, f={video_length}, m*c)")
 
         b, f, c = context_tokens.shape
         for conv_iter in range(2):
@@ -417,15 +420,15 @@ class AudioProjModel(torch.nn.Module):
 
                 context_tokens = torch.cat([x_first[..., None], x_rest], dim=-1)
                 context_tokens = context_tokens.reshape(b, c, context_tokens.shape[-1]).permute(0, 2, 1)
-                print(f"[AUDIO_DEBUG]   conv1d iter={conv_iter} (奇数帧): shape={context_tokens.shape}")
+                _audio_debug(f"[AUDIO_DEBUG]   conv1d iter={conv_iter} (奇数帧): shape={context_tokens.shape}")
             else:
                 context_tokens = self.conv1(context_tokens)
                 context_tokens = context_tokens.reshape(b, c, context_tokens.shape[-1]).permute(0, 2, 1)
-                print(f"[AUDIO_DEBUG]   conv1d iter={conv_iter} (偶数帧): shape={context_tokens.shape}")
+                _audio_debug(f"[AUDIO_DEBUG]   conv1d iter={conv_iter} (偶数帧): shape={context_tokens.shape}")
 
         context_tokens = rearrange(context_tokens, "b f (m c) -> b f m c", m=self.context_tokens)
         context_tokens = self.norm(context_tokens)
-        print(f"[AUDIO_DEBUG]   最终输出 (LayerNorm 后): shape={context_tokens.shape}  (B, F', {self.context_tokens}, {self.output_dim})")
+        _audio_debug(f"[AUDIO_DEBUG]   最终输出 (LayerNorm 后): shape={context_tokens.shape}  (B, F', {self.context_tokens}, {self.output_dim})")
 
         return context_tokens
     

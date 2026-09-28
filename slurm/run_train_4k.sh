@@ -108,6 +108,13 @@ echo " Save:  ${SAVE_ROOT}"
 echo "=========================================="
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
 
+export PYTHONUNBUFFERED=1
+export NCCL_DEBUG=WARN
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_NCCL_TRACE_BUFFER_SIZE=1000
+# 默认关掉 AUDIO_DEBUG：每步双卡 print 容易把 DataLoader/GIL 卡死，导致 NCCL timeout
+unset HALLO3_AUDIO_DEBUG
+
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 TORCH_DISABLE_ADDR2LINE=1 \
 torchrun --standalone --nproc_per_node=$NGPUS \
