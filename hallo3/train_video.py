@@ -243,9 +243,9 @@ def forward_step_eval(data_iterator, model, args, timers, only_log_video_latents
 
     broad_cast_batch(batch_video)  # 广播数据到模型并行组内所有 GPU
 
-    # 只让数据并行 rank=0 的进程保存样本视频（避免重复写文件）
-    if mpu.get_data_parallel_rank() == 0:
-        log_video(batch_video, model, args, only_log_video_latents=only_log_video_latents)
+    # 两张卡必须走同一套 GPU collective。原先只让 DP rank0 跑 log_video，
+    # rank1 会先进入 shared_step 的 allreduce，等满 10 分钟 NCCL timeout。
+    log_video(batch_video, model, args, only_log_video_latents=only_log_video_latents)
 
     batch_video["global_step"] = args.iteration  # 把当前步数塞进 batch，模型可能用得到
     loss, loss_dict = model.shared_step(batch_video)  # 算 loss

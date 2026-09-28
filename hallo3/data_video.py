@@ -695,6 +695,17 @@ class Stage2_SFTDataset(Dataset):
 
 
     def __getitem__(self, index):
+        last_err = None
+        for _ in range(8):
+            try:
+                return self._getitem_impl(index)
+            except Exception as e:
+                last_err = e
+                print(f"[Stage2_SFTDataset] skip index={index}: {type(e).__name__}: {e}", flush=True)
+                index = random.randint(0, max(self.length - 1, 0))
+        raise last_err
+
+    def _getitem_impl(self, index):
         decord.bridge.set_bridge("torch")
 
         video_meta = self.vid_meta[index]
