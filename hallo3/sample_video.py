@@ -26,6 +26,7 @@ import torchvision.transforms as transforms
 import torch.nn.functional as F
 
 from sgm.utils.audio_processor import AudioProcessor
+from sgm.utils.ltx_audio_processor import LTXAudioProcessor
 from sgm.utils.image_processor import ImageProcessor
 from icecream import ic
 from torchvision.utils import save_image
@@ -230,18 +231,24 @@ def sampling_main(args, model_cls):
         chained_trainsforms.append(TT.ToTensor())
         transform = TT.Compose(chained_trainsforms)
 
-    audio_separator_model_file = args.audio_separator_model_path
-    wav2vec_model_path = args.wav2vec_model_path
-    wav2vec_only_last_features = args.wav2vec_features == "last"
-
-    audio_processor = AudioProcessor(
-                    args.sample_rate,
-                    wav2vec_model_path,
-                    wav2vec_only_last_features,
-                    os.path.dirname(audio_separator_model_file),
-                    os.path.basename(audio_separator_model_file),
-                    os.path.join(".cache", "audio_preprocess")
-                )
+    # Use LTX-2 VAE audio encoder if checkpoint path provided, otherwise fall back to wav2vec
+    vae_checkpoint = getattr(args, "vae_checkpoint", None)
+    if vae_checkpoint and os.path.exists(vae_checkpoint):
+        print(f"[INFO] Using LTX-2 VAE audio encoder: {vae_checkpoint}")
+        audio_processor = LTXAudioProcessor(vae_checkpoint=vae_checkpoint)
+    else:
+        print(f"[INFO] Using wav2vec audio encoder")
+        audio_separator_model_file = args.audio_separator_model_path
+        wav2vec_model_path = args.wav2vec_model_path
+        wav2vec_only_last_features = args.wav2vec_features == "last"
+        audio_processor = AudioProcessor(
+                        args.sample_rate,
+                        wav2vec_model_path,
+                        wav2vec_only_last_features,
+                        os.path.dirname(audio_separator_model_file),
+                        os.path.basename(audio_separator_model_file),
+                        os.path.join(".cache", "audio_preprocess")
+                    )
     
     image_processor = ImageProcessor(args.face_analysis_model_path)
 

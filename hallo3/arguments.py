@@ -83,6 +83,8 @@ def add_others_config_args(parser):
                        help="使用 wav2vec2 的哪些特征层：all / last / ...")
     group.add_argument("--audio_separator_model_path", type=str,
                        help="人声分离模型路径（把背景音乐从人声中分离）")
+    group.add_argument("--vae_checkpoint", type=str, default=None,
+                       help="LTX-2 VAE 音频编码器 checkpoint 路径（传入则用 LTX-2 VAE，否则用 wav2vec）")
     group.add_argument("--face_analysis_model_path", type=str,
                        help="人脸分析模型路径（提取人脸 embedding）")
 

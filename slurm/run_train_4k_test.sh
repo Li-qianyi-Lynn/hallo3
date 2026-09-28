@@ -17,14 +17,15 @@ source activate hallo3
 cd ~/hallo3/hallo3
 ln -sf /scratch/li_qiany_neu/pretrained_models pretrained_models
 
+NGPUS=$(nvidia-smi -L | wc -l)
 echo "=========================================="
-echo " 4K LTX-2 VAE Training TEST (2x B200)"
+echo " 4K LTX-2 VAE Training TEST"
 echo " Start: $(date)"
-echo " GPUs: $SLURM_GPUS_ON_NODE"
+echo " GPUs detected: $NGPUS"
 echo "=========================================="
 
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-torchrun --standalone --nproc_per_node=2 \
+torchrun --standalone --nproc_per_node=$NGPUS \
     train_video.py \
     --base ../configs/cogvideox_5b_i2v_s2.yaml ../configs/sft_4k_train.yaml \
     --seed 42
