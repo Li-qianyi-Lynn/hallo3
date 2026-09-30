@@ -264,7 +264,20 @@ def forward_step(data_iterator, model, args, timers, data_class=None):
     """
     if mpu.get_model_parallel_rank() == 0:
         timers("data loader").start()
+        # 双卡时若某一 rank 卡在读视频，另一 rank 会先进 allreduce → NCCL 10min timeout
+        if getattr(args, "iteration", 0) is not None:
+            print(
+                f"[DATA] rank={torch.distributed.get_rank()} "
+                f"iter={args.iteration} waiting for next batch",
+                flush=True,
+            )
         batch = next(data_iterator)   # 取下一批训练数据
+        if getattr(args, "iteration", 0) is not None:
+            print(
+                f"[DATA] rank={torch.distributed.get_rank()} "
+                f"iter={args.iteration} got batch keys={list(batch.keys())}",
+                flush=True,
+            )
         timers("data loader").stop()
 
         # 把所有张量搬到 GPU

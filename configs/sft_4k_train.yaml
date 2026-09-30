@@ -13,7 +13,7 @@ args:
   eval_interval: 99999
   eval_batch_size: 1
   save: /scratch/li_qiany_neu/train_output_4k
-  save_interval: 100
+  save_interval: 200
   overwrite: True
   log_interval: 1
   train_data: [
@@ -23,7 +23,7 @@ args:
     "../data/talkvid_4k.json",
   ]
   split: 1,0,0
-  num_workers: 2
+  num_workers: 0
   force_train: True
   only_log_video_latents: True
 

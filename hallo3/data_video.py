@@ -735,7 +735,7 @@ class Stage2_SFTDataset(Dataset):
             )  # Generates [-2, -1, 0, 1, 2]
             _audio_debug(f"[AUDIO_DEBUG]   audio_margin={self.audio_margin}, margin_indices={margin_indices.tolist()}")
 
-            vr = VideoReader(uri=video_path, height=-1, width=-1)
+            vr = VideoReader(uri=video_path, height=-1, width=-1, num_threads=1)
             ori_vlen = len(vr)
 
             sample_len = self.max_num_frames * self.frame_interval
@@ -841,7 +841,7 @@ class Stage2_SFTDataset(Dataset):
             )  # Generates [-2, -1, 0, 1, 2]
             _audio_debug(f"[AUDIO_DEBUG]   audio_margin={self.audio_margin}, margin_indices={margin_indices.tolist()}")
 
-            vr = VideoReader(uri=video_path, height=-1, width=-1)
+            vr = VideoReader(uri=video_path, height=-1, width=-1, num_threads=1)
             ori_vlen = len(vr)
 
             sample_len = self.max_num_frames * self.frame_interval
