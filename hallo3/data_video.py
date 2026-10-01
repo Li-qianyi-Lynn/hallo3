@@ -54,6 +54,12 @@ def _call_with_timeout(fn, timeout):
         raise box["error"]
     return box["value"]
 
+
+def _read_frame_fresh_reader(video_path, idx):
+    # 实测：get_batch 取完窗口后，同一个 reader 再 vr[idx] / get_batch([idx]) 在含损坏帧的视频上
+    # 会卡死（>30s），而新开 reader 只要 0.2s，所以参考帧必须用独立的 reader 读。
+    return VideoReader(uri=video_path, height=-1, width=-1, num_threads=1)[idx]
+
 def read_video(
     filename: str,
     start_pts: Union[float, Fraction] = 0,
@@ -816,12 +822,12 @@ class Stage2_SFTDataset(Dataset):
                     ori_vlen-1
                 )
 
-            ref_image = vr[ref_idx]
+            ref_image = _read_frame_fresh_reader(video_path, ref_idx)
             tensor_ref = torch.from_numpy(ref_image) if type(ref_image) is not torch.Tensor else ref_image
             tensor_ref = tensor_ref.permute(2, 0, 1).unsqueeze(0)
             _, _, h, w = tensor_ref.shape
             tensor_ref = resize_only(tensor_ref, self.video_size)
-            
+
             mask_bbox = bbox[ref_idx]
             ref_mask = self.get_mask(mask_bbox, self.video_size, h, w)
             mask_ref = tensor_ref * ref_mask
@@ -922,7 +928,7 @@ class Stage2_SFTDataset(Dataset):
                     ori_vlen-1
                 )
 
-            ref_image = vr[ref_idx]
+            ref_image = _read_frame_fresh_reader(video_path, ref_idx)
             tensor_ref = torch.from_numpy(ref_image) if type(ref_image) is not torch.Tensor else ref_image
             tensor_ref = tensor_ref.permute(2, 0, 1).unsqueeze(0)
             _, _, h, w = tensor_ref.shape

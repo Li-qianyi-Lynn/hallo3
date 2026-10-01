@@ -1,7 +1,8 @@
-"""Scan training videos for decord problems (corrupt frames / hanging seeks).
+"""Scan training videos for decord problems (corrupt frames / slow or hanging seeks).
 
 Each video is probed in its own subprocess with a hard timeout, because a hanging
 decord seek spins in native code and cannot be interrupted from Python.
+Reads are timed the way training does them (get_batch window, single frames via a fresh reader).
 
 Usage:
     python scripts/scan_bad_videos.py --json data/talkvid_4k.json --workers 6
@@ -16,7 +17,9 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def probe(path):
+def probe(path, slow):
+    import time
+
     from decord import VideoReader
 
     vr = VideoReader(path, num_threads=1)
@@ -32,17 +35,37 @@ def probe(path):
         print(f"LENMISMATCH len={total} decoded={decoded}")
         return
 
-    vr = VideoReader(path, num_threads=1)
-    fixed = [0, total // 4, total // 2, (3 * total) // 4, total - 31, total - 12, total - 2, total - 1]
-    for i in sorted({min(max(i, 0), total - 1) for i in fixed}):
-        vr[i]
-    print("OK")
+    # 与训练一致：窗口用 get_batch 读，参考帧用新开的 reader 读单帧
+    worst, worst_what = 0.0, ""
+
+    def timed(what, fn):
+        nonlocal worst, worst_what
+        t = time.time()
+        fn()
+        dt = time.time() - t
+        if dt > worst:
+            worst, worst_what = dt, what
+
+    n_win = 49
+    last_start = max(total - n_win, 0)
+    for s in sorted({0, last_start // 2, last_start}):
+        window = list(range(s, min(s + n_win, total)))
+        timed(f"window@{s}", lambda w=window: VideoReader(path, num_threads=1).get_batch(w))
+
+    points = sorted({round(k * (total - 1) / 11) for k in range(12)} | {total - 1})
+    for i in points:
+        timed(f"frame@{i}", lambda i=i: VideoReader(path, num_threads=1)[i])
+
+    if worst > slow:
+        print(f"SLOW_SEEK {worst:.1f}s {worst_what}")
+    else:
+        print("OK")
 
 
-def run_probe(path, timeout):
+def run_probe(path, timeout, slow):
     try:
         r = subprocess.run(
-            [sys.executable, os.path.abspath(__file__), "--probe", path],
+            [sys.executable, os.path.abspath(__file__), "--probe", path, "--slow", str(slow)],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -53,11 +76,12 @@ def run_probe(path, timeout):
     err = r.stderr
     if r.returncode != 0:
         return path, f"ERROR: {err.strip().splitlines()[-1] if err.strip() else r.returncode}"
-    if out.startswith("LENMISMATCH"):
-        return path, out
+    reasons = []
+    if out.startswith(("LENMISMATCH", "SLOW_SEEK")):
+        reasons.append(out)
     if "corrupted" in err:
-        return path, "CORRUPT_FRAMES"
-    return path, "OK"
+        reasons.append("CORRUPT_FRAMES")
+    return path, "; ".join(reasons) or "OK"
 
 
 def extract_paths(data):
@@ -70,12 +94,13 @@ def main():
     ap.add_argument("--probe", help="internal: probe a single video")
     ap.add_argument("--json", help="training json (list of dicts with video_path)")
     ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--timeout", type=float, default=60.0)
+    ap.add_argument("--timeout", type=float, default=180.0, help="per-video hard limit (s)")
+    ap.add_argument("--slow", type=float, default=3.0, help="single seek slower than this (s) is flagged")
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
 
     if args.probe:
-        probe(args.probe)
+        probe(args.probe, args.slow)
         return
 
     with open(args.json) as f:
@@ -85,7 +110,7 @@ def main():
     bad = {}
     done = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = [ex.submit(run_probe, p, args.timeout) for p in paths]
+        futs = [ex.submit(run_probe, p, args.timeout, args.slow) for p in paths]
         for fut in as_completed(futs):
             path, status = fut.result()
             done += 1
