@@ -30,32 +30,12 @@ from icecream import ic
 _audio_debug = print if os.environ.get("HALLO3_AUDIO_DEBUG") == "1" else (lambda *a, **k: None)
 
 DECORD_TIMEOUT_S = float(os.environ.get("HALLO3_DECORD_TIMEOUT", "30"))
-REF_TAIL_MARGIN = int(os.environ.get("HALLO3_REF_TAIL_MARGIN", "30"))
-
-
-class _TailSafeReader:
-    # 个别视频的元数据帧数比实际可解码帧数多，decord 在末尾附近 seek_accurate 会无限空转
-    # （例如 videovideoMXAbum3V5bk-scene5-scene19.mp4 的第 387/399 帧）。
-    # 只对按下标取单帧做保护，len() 保持不变，避免影响音频下标的缩放。
-    def __init__(self, vr):
-        self._vr = vr
-
-    def __len__(self):
-        return len(self._vr)
-
-    def get_batch(self, indices):
-        return self._vr.get_batch(indices)
-
-    def __getitem__(self, idx):
-        limit = max(len(self._vr) - 1 - REF_TAIL_MARGIN, 0)
-        if idx > limit:
-            idx = random.randint(0, limit)
-        return self._vr[idx]
 
 
 def _call_with_timeout(fn, timeout):
-    # decord 的 seek_accurate 在个别视频上会在原生代码里无限空转，signal.alarm 打断不了，
-    # 只能放到线程里计时，超时就丢弃这条样本（ctypes 调用不持有 GIL，不会拖住其他线程）。
+    # 含大量损坏帧的视频上 decord 的 seek_accurate 会在原生代码里极慢甚至卡死，
+    # signal.alarm 打断不了，只能放到线程里计时，超时就丢弃这条样本
+    # （ctypes 调用不持有 GIL，不会拖住其他线程）。
     import threading
     box = {}
 
@@ -786,7 +766,7 @@ class Stage2_SFTDataset(Dataset):
             )  # Generates [-2, -1, 0, 1, 2]
             _audio_debug(f"[AUDIO_DEBUG]   audio_margin={self.audio_margin}, margin_indices={margin_indices.tolist()}")
 
-            vr = _TailSafeReader(VideoReader(uri=video_path, height=-1, width=-1, num_threads=1))
+            vr = VideoReader(uri=video_path, height=-1, width=-1, num_threads=1)
             ori_vlen = len(vr)
 
             sample_len = self.max_num_frames * self.frame_interval
@@ -892,7 +872,7 @@ class Stage2_SFTDataset(Dataset):
             )  # Generates [-2, -1, 0, 1, 2]
             _audio_debug(f"[AUDIO_DEBUG]   audio_margin={self.audio_margin}, margin_indices={margin_indices.tolist()}")
 
-            vr = _TailSafeReader(VideoReader(uri=video_path, height=-1, width=-1, num_threads=1))
+            vr = VideoReader(uri=video_path, height=-1, width=-1, num_threads=1)
             ori_vlen = len(vr)
 
             sample_len = self.max_num_frames * self.frame_interval

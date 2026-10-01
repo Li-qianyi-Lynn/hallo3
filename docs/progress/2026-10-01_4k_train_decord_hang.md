@@ -2,7 +2,7 @@
 
 更新日期：2026-10-01
 
-接续 `2026-09-28_4k_train_bugs.md`。上一轮修了 AUDIO_DEBUG 和 eval 双卡不同步，但训练仍然随机挂掉。本轮用 `py-spy` 抓到真正原因：**某条视频的 decord 取帧无限空转**。
+接续 `2026-09-28_4k_train_bugs.md`。上一轮修了 AUDIO_DEBUG 和 eval 双卡不同步，但训练仍然随机挂掉。本轮用 `py-spy` 抓到真正原因：**含大量损坏帧的视频上，decord 单帧 seek 极慢甚至卡死**。
 
 ---
 
@@ -13,7 +13,7 @@
 | 分区 | `b200-batch` | **`rtx-batch`**（RTX PRO 6000，`--gpus=2`），B200 devel 排不到 |
 | 验证方式 | B200 交互节点 | `rtx-devel` 2 小时交互节点（job `1142191`，节点 `a0019`） |
 | 续训进度统计 | 取步数最大的目录 | **各轮 `latest` 求和**（见第四节） |
-| 视频读取 | 无保护 | 单样本 30s 超时 + 参考图避开视频尾部 |
+| 视频读取 | 无保护 | 单样本 30s 超时 + 扫描并剔除坏视频 |
 | `num_workers` | 0（临时） | 2 |
 | `save_interval` | 100 / 200 | **300** |
 
@@ -28,11 +28,11 @@
 | `1107946`（第 16 步后 10 min） | 同上，SeqNum 186 | 当时怀疑 DataLoader / decord，已加 `num_workers: 0`，**方向对但没找到点** |
 | 交互 `1142191`（第 176 步） | 日志停住，将被 watchdog 杀 | **用 py-spy 定位到具体视频** |
 
-共同现象：Rank 0 已进入下一次 allreduce，Rank 1 没跟上，10 分钟（`Timeout(ms)=600000`）后 watchdog `SIGABRT`。挂的步数每次不同，是因为取决于是否随机抽到问题视频的尾部帧。
+共同现象：Rank 0 已进入下一次 allreduce，Rank 1 没跟上，10 分钟（`Timeout(ms)=600000`）后 watchdog `SIGABRT`。挂的步数每次不同，是因为取决于是否随机抽到问题视频、且随机帧落在难读的区域。
 
 ---
 
-## 三、根因：decord `seek_accurate` 在视频尾部帧无限空转
+## 三、根因：损坏视频上 decord `seek_accurate` 极慢/卡死
 
 ### 现场（第 176 步，04:01:19 EDT 起停住）
 
@@ -53,7 +53,7 @@ start: 223  end: 272        # 取 49 帧的窗口，解码成功
 idx: 387                    # data_video.py:894 的 vr[ref_idx]，卡住
 ```
 
-- 卡点是 `ref_image = vr[ref_idx]`（随机取参考图），`ref_idx=387`，离视频末尾只差 12 帧
+- 卡点是 `ref_image = vr[ref_idx]`（随机取参考图），`ref_idx=387`
 - 取帧窗口 `vr.get_batch(...)` 正常，只有按下标取单帧（`seek_accurate`）卡住
 
 ### 验证结果（顺序解码）
@@ -66,12 +66,27 @@ sequentially decodable = 399
 
 - 顺序解码能读满 399 帧，所以**不是"元数据帧数虚高"**（最初的推断被否定）
 - decord 警告该视频有超过 100 帧损坏，是用相邻帧补上的，视频本身已损坏
-- 随机 `seek_accurate` 落到损坏区域时会空转。卡死位置不一定只在最后 30 帧，所以下面的尾部保护**不保证够用**，真正兜底的是单样本超时，根治办法是把损坏视频从训练集里剔除（见第六节的扫描脚本）
+- 视频本身已损坏，顺序解码没问题，但随机 seek 会出问题
+
+### 验证结果（逐帧 seek 计时，每次全新进程）
+
+```text
+idx 0   0.39s     idx 240  15.77s
+idx 60  0.55s     idx 300  0.09s
+idx 120 0.70s     idx 340  0.15s
+idx 180 8.81s     idx 368/380/387/398  0.20~0.24s
+get_batch([387]) 0.24s,  get_batch([380]) 0.35s
+```
+
+- **尾部帧不特殊**：`vr[387]` 全新 reader 只要 0.23s，最初"尾部帧有问题"的推断被否定，已撤掉对应的尾部保护代码
+- **中段 seek 极慢**：下标 180、240 分别用了 8.8s、15.8s，其余都是零点几秒，说明损坏段内没有可用关键帧，decord 要硬解很多帧
+- 训练里实际是先 `get_batch(223..272)` 再 `vr[387]`，reader 处于不同状态，可能比全新 reader 更慢，**此时的耗时还没按训练顺序复现**（扫描脚本已按训练顺序计时）
+- 慢的是原生调用，理论上最终会返回，不一定是死循环
 
 ### 因果链
 
 ```
-抽到问题视频的尾部帧 -> rank1 worker 在 seek_accurate 空转
+抽到损坏视频，随机帧落在难读区域 -> rank1 worker 在 seek_accurate 里极慢/卡死
  -> rank1 拿不到 batch，GPU1 空闲
  -> rank0 在 allreduce 等 rank1
  -> 10 分钟后 NCCL watchdog 杀进程
@@ -85,7 +100,7 @@ sequentially decodable = 399
 
 ### 0. 新增 `scripts/scan_bad_videos.py`
 
-对训练 json 里每个视频在独立子进程中做探测（硬超时，因为 decord 空转无法从 Python 内打断）：顺序解码全部帧、检测 `corrupted` 警告、对头/中/尾若干固定下标做 `vr[i]` seek。输出 `<stem>_bad_videos.json`（路径 → 原因：`HANG` / `CORRUPT_FRAMES` / `LENMISMATCH` / `ERROR`）和剔除坏视频后的 `<stem>_clean.json`。
+对训练 json 里每个视频在独立子进程中做探测（硬超时，因为 decord 卡死无法从 Python 内打断）：顺序解码全部帧、检测 `corrupted` 警告，再按训练的访问顺序（先 `get_batch` 取窗口，再对 12 个均匀分布的下标做 `vr[i]`）逐次计时，单次超过 `--slow`（默认 3s）判为慢。输出 `<stem>_bad_videos.json`（路径 → 原因：`HANG` / `SLOW_SEEK` / `CORRUPT_FRAMES` / `LENMISMATCH` / `ERROR`）和剔除坏视频后的 `<stem>_clean.json`。
 
 ```bash
 python scripts/scan_bad_videos.py --json data/talkvid_4k.json --workers 6
@@ -93,10 +108,10 @@ python scripts/scan_bad_videos.py --json data/talkvid_4k.json --workers 6
 
 ### 1. `hallo3/data_video.py`
 
-- **`_TailSafeReader`**：包装 `VideoReader`，按下标取单帧时，下标落在最后 `REF_TAIL_MARGIN`（默认 30）帧内就在 `[0, len-31]` 里重新随机。`len()` 不变，音频下标缩放不受影响。环境变量：`HALLO3_REF_TAIL_MARGIN`
-- **`_call_with_timeout`**：`__getitem__` 里单条样本读取放进线程，超过 `DECORD_TIMEOUT_S`（默认 30s，环境变量 `HALLO3_DECORD_TIMEOUT`）就放弃并换一条样本。decord 在原生代码里空转，`signal.alarm` 打断不了，所以用线程计时
+- **`_call_with_timeout`**：`__getitem__` 里单条样本读取放进线程，超过 `DECORD_TIMEOUT_S`（默认 30s，环境变量 `HALLO3_DECORD_TIMEOUT`）就放弃并换一条样本。decord 在原生代码里卡住，`signal.alarm` 打断不了，所以用线程计时
 - 超时或异常时打印 `[Stage2_SFTDataset] skip index=... path=...`，用于定位其他坏视频
-- 已知代价：超时被放弃的线程会继续空转占一个核直到 worker 退出，所以不能只靠超时，要配合尾部保护
+- 已知代价：被放弃的线程会继续占一个核直到 decord 返回或 worker 退出，所以只是兜底，根治要靠剔除坏视频
+- 曾加过"参考图避开最后 30 帧"的 `_TailSafeReader`，因尾部帧并不特殊，已撤销
 
 ### 2. `configs/sft_4k_train.yaml`
 
@@ -143,35 +158,26 @@ SAT 的 `get_learning_rate_scheduler` 对非 pretrain 模式有 `auto_warmup_ste
 
 ## 六、待验证与下一步
 
-1. （已完成，结果见第三节）用 `VideoReader` 顺序 `next()` 数实际可解码帧数，对比 `len(vr)`：
+1. （已完成，结果见第三节）顺序解码与逐帧 seek 计时均已验证
+2. 按训练顺序复现（`get_batch(223..272)` 之后再 `vr[387]`）确认耗时，判断是否与 reader 状态有关：
 
 ```bash
-python - <<'EOF'
+timeout 300 python - <<'EOF'
+import time
 from decord import VideoReader
 p = "/scratch/li_qiany_neu/talkvid_4k/videos/videovideoMXAbum3V5bk-scene5-scene19.mp4"
-print("len(vr) =", len(VideoReader(p, num_threads=1)))
 vr = VideoReader(p, num_threads=1)
-n = 0
-try:
-    while True:
-        vr.next(); n += 1
-except Exception as e:
-    print("stopped by", type(e).__name__)
-print("sequentially decodable =", n)
+vr.get_batch(list(range(223, 272)))
+t = time.time(); vr[387]
+print("after get_batch, vr[387] took %.2fs" % (time.time() - t))
 EOF
 ```
 
-2. 本地改动未提交，集群上仍是旧版（HEAD `241e81f`）。需要 commit / push，再在集群 `git pull`，并确认：
-
-```bash
-grep -n "num_workers\|save_interval" configs/sft_4k_train.yaml
-grep -n "_TailSafeReader" hallo3/data_video.py
-```
-
-3. 重新申请 `rtx-devel`，跑过 300 步并观察是否出现 `skip index=... path=...`
-4. 通过后提交 `sbatch slurm/run_train_4k.sh`（先退出交互节点，避免与正式任务同时写 `train_output_4k`）
-5. 若发现不止一条坏视频，写脚本一次性扫描 2719 条，提前过滤问题视频
-6. 稳定后清理 `[DATA]` 心跳；训完再把 `eval_interval` 调回 1000 左右
+3. commit / push 本轮改动，集群 `git pull` 后运行 `scripts/scan_bad_videos.py`（集群上才有数据和 json），得到 `_bad_videos.json` 与 `_clean.json`
+4. 把 `sft_4k_train.yaml` 的数据 json 换成 `_clean.json`
+5. 重新申请 `rtx-devel`，跑过 300 步并观察是否出现 `skip index=... path=...`
+6. 通过后提交 `sbatch slurm/run_train_4k.sh`（先退出交互节点，避免与正式任务同时写 `train_output_4k`）
+7. 稳定后清理 `[DATA]` 心跳；训完再把 `eval_interval` 调回 1000 左右
 
 ---
 
@@ -179,7 +185,8 @@ grep -n "_TailSafeReader" hallo3/data_video.py
 
 | 文件 | 改动 |
 |------|------|
-| `hallo3/data_video.py` | `_TailSafeReader`、`_call_with_timeout`、单样本 30s 超时、`num_threads=1`、跳过日志带视频路径 |
+| `hallo3/data_video.py` | `_call_with_timeout`、单样本 30s 超时、`num_threads=1`、跳过日志带视频路径 |
+| `scripts/scan_bad_videos.py` | 新增：扫描损坏 / 慢 seek / 卡死的视频并生成 `_clean.json` |
 | `hallo3/train_video.py` | `[DATA]` 心跳（临时） |
 | `configs/sft_4k_train.yaml` | `num_workers: 2`、`save_interval: 300` |
 | `slurm/run_train_4k.sh` | `rtx-batch`、各轮 `latest` 求和续训、NCCL 与线程环境变量 |
