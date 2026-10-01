@@ -41,11 +41,21 @@ def _patched_load_checkpoint(model, args, *a, **kw):
                 print(f"  {s}")
         return _orig_load_state_dict(self, filtered, strict=False, **kwargs)
 
+    # torch>=2.6 默认 weights_only=True；我们自己存的 SAT checkpoint 带非张量的训练状态，
+    # 续训加载会被拦下（UnpicklingError）。checkpoint 由本项目写出，可信。
+    _orig_torch_load = _torch.load
+
+    def _torch_load_full(*largs, **lkwargs):
+        lkwargs.setdefault("weights_only", False)
+        return _orig_torch_load(*largs, **lkwargs)
+
     _torch.nn.Module.load_state_dict = _filtered_load_state_dict
+    _torch.load = _torch_load_full
     try:
         result = _orig_load_checkpoint(model, args, *a, **kw)
     finally:
         _torch.nn.Module.load_state_dict = _orig_load_state_dict
+        _torch.load = _orig_torch_load
     return result
 
 sat_model_io.load_checkpoint = _patched_load_checkpoint

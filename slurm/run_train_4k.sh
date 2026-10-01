@@ -1,6 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=train-4k-2gpu
 #SBATCH --partition=rtx-batch
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --gpus=2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=256G
@@ -105,6 +107,10 @@ else
 fi
 
 NGPUS=$(nvidia-smi -L | wc -l)
+if [ "$NGPUS" -ne 2 ]; then
+    echo "期望本节点 2 张 GPU，实际 ${NGPUS}（节点: ${SLURM_JOB_NODELIST}），退出，请检查 --nodes=1"
+    exit 2
+fi
 echo "=========================================="
 echo " 4K LTX-2 VAE Training (2x RTX PRO 6000, 10 epochs, 24h)"
 echo " Start: $(date)"
@@ -121,6 +127,7 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_NCCL_TRACE_BUFFER_SIZE=1000
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
+export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 # 默认关掉 AUDIO_DEBUG：每步双卡 print 容易把 DataLoader/GIL 卡死，导致 NCCL timeout
 unset HALLO3_AUDIO_DEBUG
 
