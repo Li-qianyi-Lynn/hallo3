@@ -36,6 +36,10 @@ safe_resubmit() {
     if [ "$RESUBMITTED" = "1" ]; then
         return
     fi
+    if [ "${NO_RESUBMIT:-0}" = "1" ]; then
+        echo "[resubmit] NO_RESUBMIT=1，跳过"
+        return
+    fi
     already=$(squeue -u "$USER" -h -n "$JOB_NAME" -o "%i" 2>/dev/null \
         | grep -v "^${SLURM_JOB_ID}$" | wc -l | tr -d ' ')
     if [ "${already:-0}" -ge 1 ]; then
@@ -43,7 +47,8 @@ safe_resubmit() {
         return
     fi
     echo "[resubmit] sbatch ${THIS_SCRIPT}  $(date)"
-    sbatch "$THIS_SCRIPT"
+    # afterany：等当前任务结束后才开始，避免两个任务同时从同一 checkpoint 训练
+    sbatch --dependency=afterany:${SLURM_JOB_ID} "$THIS_SCRIPT"
     RESUBMITTED=1
 }
 
@@ -136,9 +141,21 @@ TORCH_DISABLE_ADDR2LINE=1 \
 torchrun --standalone --nproc_per_node=$NGPUS \
     train_video.py \
     --base $BASE_YAMLS \
-    --seed $RANDOM
+    --seed $RANDOM &
+TRAIN_PID=$!
 
-TRAIN_EXIT=$?
+# bash 在前台命令运行期间不会执行 trap，必须放后台再 wait，USR1 才能及时触发重提交。
+# wait 被信号打断时返回 >128，但训练还活着，继续等。
+TRAIN_EXIT=0
+while true; do
+    wait "$TRAIN_PID"
+    rc=$?
+    if kill -0 "$TRAIN_PID" 2>/dev/null; then
+        continue
+    fi
+    TRAIN_EXIT=$rc
+    break
+done
 
 echo "=========================================="
 echo " Exit code: $TRAIN_EXIT"
