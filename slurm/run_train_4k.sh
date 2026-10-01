@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=train-4k-2gpu
-#SBATCH --partition=b200-batch
-#SBATCH --gres=gpu:b200:2
+#SBATCH --partition=rtx-batch
+#SBATCH --gpus=2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=256G
 #SBATCH --time=24:00:00
@@ -9,12 +9,13 @@
 #SBATCH --account=p2026_0014_neu
 #SBATCH --output=/scratch/li_qiany_neu/hallo3_logs/train_4k_%j.log
 #
-# 2×B200 × 24h 分段训练 (4K / LTX-2 VAE)
+# 2×RTX PRO 6000 × 24h 分段训练 (4K / LTX-2 VAE)
 #   2719 clips / 2 GPU ≈ 1360 steps/epoch
-#   10 epochs ≈ 13600 steps ≈ 34h @ ~9s/step（B200 可能更快）
-#   Session 1: 0 → ~9600  (~24h)
-#   Session 2: ~9600 → 13600 (~10h，超时自动续训)
-# 超时前 3 分钟自动 sbatch 下一轮；启动时自动找最新 checkpoint 续训。
+#   10 epochs ≈ 13600 steps ≈ 34h @ ~8.8s/step
+#   Session 1: 0 → ~9800  (~24h)
+#   Session 2: 剩余步数 (~10h，超时自动续训)
+# 超时前 3 分钟自动 sbatch 下一轮；续训只加载权重（优化器状态和 lr warmup 会重置），
+# 步数按各轮 checkpoint 累计，每轮 train_iters = 13600 - 已完成步数。
 # 提交: sbatch slurm/run_train_4k.sh
 
 REPO_DIR="${HOME}/hallo3"
@@ -52,28 +53,33 @@ on_time_warning() {
 }
 trap on_time_warning USR1
 
-# ---- 找最新 SAT checkpoint（{save}/{experiment_name}-{ts}/latest）----
-find_latest_ckpt() {
-    local best_dir="" best_iter=0 f dir iter
+# ---- 汇总 checkpoint 进度 ----
+# finetune 模式下 SAT 续训只加载权重，步数会从 0 重新计。
+# 每个实验目录 {save}/{experiment_name}-{ts}/latest 里的数字只是"该轮"的步数，
+# 所以总进度 = 所有目录的 latest 之和；续训从 mtime 最新的目录加载。
+scan_ckpts() {
+    TOTAL_DONE=0
+    LOAD_DIR=""
+    local f iter m newest=0
     while IFS= read -r f; do
         [ -f "$f" ] || continue
-        dir=$(dirname "$f")
         iter=$(tr -d '[:space:]' < "$f")
-        if [[ "$iter" =~ ^[0-9]+$ ]] && [ "$iter" -ge "$best_iter" ]; then
-            best_iter=$iter
-            best_dir=$dir
+        [[ "$iter" =~ ^[0-9]+$ ]] || continue
+        [ "$iter" -gt 0 ] || continue
+        TOTAL_DONE=$((TOTAL_DONE + iter))
+        m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f")
+        if [ "$m" -ge "$newest" ]; then
+            newest=$m
+            LOAD_DIR=$(dirname "$f")
         fi
     done < <(find "$SAVE_ROOT" -name latest -type f 2>/dev/null)
-    echo "${best_dir}|${best_iter}"
 }
 
-CKPT_INFO=$(find_latest_ckpt)
-LATEST_EXP="${CKPT_INFO%%|*}"
-LATEST_ITER="${CKPT_INFO##*|}"
-LATEST_ITER="${LATEST_ITER:-0}"
+scan_ckpts
+REMAINING=$((TRAIN_ITERS - TOTAL_DONE))
 
-if [ -n "$LATEST_EXP" ] && [ "$LATEST_ITER" -ge "$TRAIN_ITERS" ]; then
-    echo "训练已完成: ${LATEST_EXP}  iter=${LATEST_ITER}/${TRAIN_ITERS}"
+if [ "$REMAINING" -le 0 ]; then
+    echo "训练已完成: 累计 ${TOTAL_DONE}/${TRAIN_ITERS}"
     exit 0
 fi
 
@@ -86,24 +92,25 @@ ln -sf /scratch/li_qiany_neu/pretrained_models pretrained_models
 
 OVERLAY="${LOG_DIR}/sft_4k_overlay_${SLURM_JOB_ID}.yaml"
 BASE_YAMLS="../configs/cogvideox_5b_i2v_s2.yaml ../configs/sft_4k_train.yaml"
-if [ -n "$LATEST_EXP" ] && [ "$LATEST_ITER" -gt 0 ]; then
-    echo "续训: ${LATEST_EXP}  iter=${LATEST_ITER}/${TRAIN_ITERS}"
+if [ -n "$LOAD_DIR" ]; then
+    echo "续训: load=${LOAD_DIR}  累计 ${TOTAL_DONE}/${TRAIN_ITERS}，本轮目标 ${REMAINING} 步"
     cat > "$OVERLAY" << EOF
 args:
-  load: ${LATEST_EXP}
+  load: ${LOAD_DIR}
+  train_iters: ${REMAINING}
 EOF
     BASE_YAMLS="${BASE_YAMLS} ${OVERLAY}"
 else
-    echo "从头训练: load=${PRETRAINED}"
+    echo "从头训练: load=${PRETRAINED}，本轮目标 ${REMAINING} 步"
 fi
 
 NGPUS=$(nvidia-smi -L | wc -l)
 echo "=========================================="
-echo " 4K LTX-2 VAE Training (2x B200, 10 epochs, 24h)"
+echo " 4K LTX-2 VAE Training (2x RTX PRO 6000, 10 epochs, 24h)"
 echo " Start: $(date)"
 echo " Node:  $(hostname)"
 echo " GPUs:  $NGPUS"
-echo " Iters: ${LATEST_ITER} → ${TRAIN_ITERS}"
+echo " Iters: 累计 ${TOTAL_DONE}/${TRAIN_ITERS}，本轮 ${REMAINING}"
 echo " Save:  ${SAVE_ROOT}"
 echo "=========================================="
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
@@ -131,15 +138,12 @@ echo " Exit code: $TRAIN_EXIT"
 echo " End: $(date)"
 echo "=========================================="
 
-CKPT_INFO=$(find_latest_ckpt)
-LATEST_EXP="${CKPT_INFO%%|*}"
-LATEST_ITER="${CKPT_INFO##*|}"
-LATEST_ITER="${LATEST_ITER:-0}"
+scan_ckpts
 echo "Checkpoints: ${SAVE_ROOT}"
-echo "Latest: ${LATEST_EXP}  iter=${LATEST_ITER}/${TRAIN_ITERS}"
+echo "最新目录: ${LOAD_DIR}  累计 ${TOTAL_DONE}/${TRAIN_ITERS}"
 ls -lh "$SAVE_ROOT" 2>/dev/null || true
 
-if [ "$LATEST_ITER" -ge "$TRAIN_ITERS" ]; then
+if [ "$TOTAL_DONE" -ge "$TRAIN_ITERS" ]; then
     echo "10 epochs 完成，不再重提交"
     exit 0
 fi
