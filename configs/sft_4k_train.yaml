@@ -13,7 +13,7 @@ args:
   eval_interval: 99999
   eval_batch_size: 1
   save: /scratch/li_qiany_neu/train_output_4k
-  save_interval: 300
+  save_interval: 250
   overwrite: True
   log_interval: 1
   train_data: [
