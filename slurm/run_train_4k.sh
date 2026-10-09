@@ -136,12 +136,21 @@ export TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
 # 默认关掉 AUDIO_DEBUG：每步双卡 print 容易把 DataLoader/GIL 卡死，导致 NCCL timeout
 unset HALLO3_AUDIO_DEBUG
 
+# 用法: WANDB=1 bash slurm/run_train_4k.sh   （计算节点没有外网时再加 WANDB_MODE=offline）
+WANDB_ARGS=""
+if [ "${WANDB:-0}" = "1" ]; then
+    WANDB_ARGS="--wandb"
+    export WANDB_DIR="${LOG_DIR}"
+    echo "wandb: 开启 (WANDB_MODE=${WANDB_MODE:-online}, WANDB_DIR=${WANDB_DIR})"
+fi
+
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 TORCH_DISABLE_ADDR2LINE=1 \
 torchrun --standalone --nproc_per_node=$NGPUS \
     train_video.py \
     --base $BASE_YAMLS \
-    --seed $RANDOM &
+    --seed $RANDOM \
+    $WANDB_ARGS &
 TRAIN_PID=$!
 
 # bash 在前台命令运行期间不会执行 trap，必须放后台再 wait，USR1 才能及时触发重提交。
