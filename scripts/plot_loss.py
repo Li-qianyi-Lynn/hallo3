@@ -58,37 +58,40 @@ def main():
     for f in logs:
         print(f"  {f.name}")
 
-    # 合并所有 (iter, loss)，按 iter 排序去重
-    all_records = []
-    for f in logs:
-        all_records.extend(extract_loss(f))
+    # 每个 log 文件的 iter 都从 1 开始（局部步数），
+    # 按文件名顺序（时间顺序）拼接，每个文件加 offset
+    iters = []
+    losses = []
+    global_offset = 0
 
-    if not all_records:
+    for f in logs:
+        records = extract_loss(f)
+        if not records:
+            continue
+        local_iters = [r[0] for r in records]
+        local_losses = [r[1] for r in records]
+        n = len(records)
+        max_local = max(local_iters)
+        print(f"  {f.name}: {n} 步, local {local_iters[0]}–{max_local}, global offset {global_offset}")
+        for li, lv in zip(local_iters, local_losses):
+            iters.append(global_offset + li)
+            losses.append(lv)
+        global_offset += max_local
+
+    if not iters:
         print("未能解析到任何 loss，请确认日志格式。")
-        print("手动试试：grep -i 'loss' <log文件> | head -5")
+        print("手动试试：grep -i 'total loss' <log文件> | head -5")
         sys.exit(1)
 
-    all_records.sort(key=lambda x: x[0])
-    # 去重（同一步可能出现在多个 log 里）
-    seen = {}
-    for it, loss in all_records:
-        seen[it] = loss
-    iters = sorted(seen.keys())
-    losses = [seen[i] for i in iters]
-
-    print(f"\n解析到 {len(iters)} 个数据点，步数范围：{iters[0]} – {iters[-1]}")
+    print(f"\n解析到 {len(iters)} 个数据点，全局步数范围：{iters[0]} – {iters[-1]}")
     print(f"Loss 范围：{min(losses):.4e} – {max(losses):.4e}")
 
-    # 打印简单文字趋势（每 500 步取一个）
-    print("\n=== Loss 趋势（每 500 步）===")
-    step_size = 500
-    prev_bucket = -1
-    for it, loss in zip(iters, losses):
-        bucket = it // step_size
-        if bucket != prev_bucket:
-            bar = "#" * int(loss * 500)  # 简单可视化
-            print(f"  step {it:6d} | loss {loss:.4e} | {bar}")
-            prev_bucket = bucket
+    # 打印简单文字趋势（均匀采样 20 个点）
+    print("\n=== Loss 趋势 ===")
+    step = max(1, len(iters) // 20)
+    for i in range(0, len(iters), step):
+        bar = "#" * min(60, int(losses[i] * 800))
+        print(f"  global ~{iters[i]:6d} | loss {losses[i]:.4e} | {bar}")
 
     # 画图
     try:
