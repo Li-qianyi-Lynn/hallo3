@@ -101,15 +101,36 @@ def main():
 
         smoothed = smooth(losses, args.smooth)
 
-        fig, ax = plt.subplots(figsize=(12, 5))
-        ax.plot(iters, losses, alpha=0.25, color="steelblue", linewidth=0.8, label="raw")
-        ax.plot(iters, smoothed, color="steelblue", linewidth=2,
-                label=f"smoothed (window={args.smooth})")
-        ax.set_xlabel("Training Step")
-        ax.set_ylabel("Loss")
-        ax.set_title("Training Loss Curve")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        # 用 95th percentile 截断 y 轴，避免尖峰把曲线压扁
+        import statistics
+        sorted_losses = sorted(losses)
+        p95 = sorted_losses[int(len(sorted_losses) * 0.95)]
+        ylim_top = min(p95 * 1.5, max(losses))
+
+        fig, axes = plt.subplots(1, 2, figsize=(16, 5))
+
+        # 左图：全量（包含尖峰）
+        axes[0].plot(iters, losses, alpha=0.2, color="steelblue", linewidth=0.6, label="raw")
+        axes[0].plot(iters, smoothed, color="steelblue", linewidth=2,
+                     label=f"smoothed (w={args.smooth})")
+        axes[0].set_title("Full range")
+        axes[0].set_xlabel("Step")
+        axes[0].set_ylabel("Loss")
+        axes[0].legend()
+        axes[0].grid(True, alpha=0.3)
+
+        # 右图：截断 y 轴，看清主趋势
+        axes[1].plot(iters, losses, alpha=0.2, color="steelblue", linewidth=0.6, label="raw")
+        axes[1].plot(iters, smoothed, color="steelblue", linewidth=2,
+                     label=f"smoothed (w={args.smooth})")
+        axes[1].set_ylim(0, ylim_top)
+        axes[1].set_title(f"Zoomed (y ≤ {ylim_top:.3f}, p95×1.5)")
+        axes[1].set_xlabel("Step")
+        axes[1].set_ylabel("Loss")
+        axes[1].legend()
+        axes[1].grid(True, alpha=0.3)
+
+        plt.suptitle("Training Loss Curve", fontsize=13)
         plt.tight_layout()
         plt.savefig(args.out, dpi=150)
         print(f"\n图已保存：{args.out}")
