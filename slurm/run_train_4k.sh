@@ -141,6 +141,9 @@ WANDB_ARGS=""
 if [ "${WANDB:-0}" = "1" ]; then
     WANDB_ARGS="--wandb"
     export WANDB_DIR="${LOG_DIR}"
+    # 环境里 protobuf 比 tensorboard 的 pb2 新，wandb 初始化会报 "Descriptors cannot be created directly"；
+    # 用纯 Python 解析绕开（只有 wandb/tensorboard 用 protobuf，对训练速度没有影响）
+    export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
     echo "wandb: 开启 (WANDB_MODE=${WANDB_MODE:-online}, WANDB_DIR=${WANDB_DIR})"
 fi
 
