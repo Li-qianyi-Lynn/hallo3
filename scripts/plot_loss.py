@@ -21,23 +21,18 @@ def parse_args():
     return p.parse_args()
 
 def extract_loss(log_path: Path):
-    """从单个 log 文件里提取 (iteration, loss) 列表"""
+    """
+    从单个 log 文件里提取 (local_iter, loss) 列表。
+    日志格式：
+      iteration       74/    3200 | ... | total loss 5.846894E-02 | ...
+    返回该文件内的局部步数和 loss。
+    """
     records = []
-    pattern = re.compile(r"iteration\s+(\d+)[^\|]*\|\s*[Ll]oss[^\d]*([\d.e+\-]+)")
-    # fallback: total loss
-    pattern2 = re.compile(r"total loss[:\s]+([\d.e+\-]+).*iteration\s+(\d+)")
-    pattern3 = re.compile(r"(\d+)/\d+.*?(?:total\s+)?loss[:\s]+([\d.e+\-]+)")
-
+    pattern = re.compile(
+        r"iteration\s+(\d+)/\s*\d+.*?total loss\s+([\d.eE+\-]+)"
+    )
     for line in log_path.read_text(errors="replace").splitlines():
         m = pattern.search(line)
-        if m:
-            records.append((int(m.group(1)), float(m.group(2))))
-            continue
-        m = pattern2.search(line)
-        if m:
-            records.append((int(m.group(2)), float(m.group(1))))
-            continue
-        m = pattern3.search(line)
         if m:
             records.append((int(m.group(1)), float(m.group(2))))
     return records
