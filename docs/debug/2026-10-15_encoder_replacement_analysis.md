@@ -1,4 +1,4 @@
-# 2026-10-16：新 encoder 效果差的根因分析与改进方案
+# 2026-10-15：新 encoder 效果差的根因分析与改进方案
 
 承接 [2026-10-09_syncnet_val5_gt_vs_gen.md](../progress/2026-10-09_syncnet_val5_gt_vs_gen.md)。
 
@@ -6,11 +6,13 @@
 
 新 encoder（LTX-2 VAE）替换原版 wav2vec 后，SyncNet 打分严重退化：
 
-| | 真值 | 原版 Hallo3 | 新 encoder 7000 步 |
-|---|------|-------------|---------------------|
-| Min dist 平均 | 7.55 | 9.29 | 13.65 |
-| Confidence 平均 | 7.12 | 6.33 | 1.04 |
-| offset | 稳定 -1...-2 | 稳定 -1...-2 | 乱跳 -15...+15 |
+
+|               | 真值         | 原版 Hallo3  | 新 encoder 7000 步 |
+| ------------- | ---------- | ---------- | ---------------- |
+| Min dist 平均   | 7.55       | 9.29       | 13.65            |
+| Confidence 平均 | 7.12       | 6.33       | 1.04             |
+| offset        | 稳定 -1...-2 | 稳定 -1...-2 | 乱跳 -15...+15     |
+
 
 新 encoder 的 conf 只有原版的 ~16%，口型基本没被音频驱动。
 
@@ -22,32 +24,48 @@
 
 AudioProjModel 的输入维度变化：
 
-| | 原版 (wav2vec) | 新 encoder (LTX-2 VAE) |
-|---|---|---|
-| 每帧特征维度 | 768 | 128 |
-| 堆叠层数 (blocks) | 12 | 1 |
-| 窗口大小 (seq_len) | 5 | 5 |
+
+|                | 原版 (wav2vec)              | 新 encoder (LTX-2 VAE) |
+| -------------- | ------------------------- | --------------------- |
+| 每帧特征维度         | 768                       | 128                   |
+| 堆叠层数 (blocks)  | 12                        | 1                     |
+| 窗口大小 (seq_len) | 5                         | 5                     |
 | **proj1 输入维度** | **5 x 12 x 768 = 46,080** | **5 x 1 x 128 = 640** |
-| proj1 输出维度 | 512 | 512 |
-| 最终输出 | 32 tokens x 768 dim | 32 tokens x 768 dim |
+| proj1 输出维度     | 512                       | 512                   |
+| 最终输出           | 32 tokens x 768 dim       | 32 tokens x 768 dim   |
+
 
 proj1 原来是 46,080 -> 512 的**压缩层**（从大量冗余中提取精华），现在变成 640 -> 512 的**几乎无压缩传递**，但后面 proj3 还是要从 512 -> 32x768 = 24,576 展开。信息不够，网络只能学到近似常量的输出。
 
 ### 2.2 表征目标不匹配
 
-| | wav2vec2 | LTX-2 Audio VAE |
-|---|---|---|
-| 训练目标 | 自监督语音表征学习（对比学习 + masked prediction） | 音频重建（VAE：encode -> decode -> 重建 mel 谱） |
-| 特征含义 | 音素、韵律、语义（12 层金字塔） | 声学纹理/音色（压缩码，用于重建） |
-| 层数 | 12 层，每层 768 维 | 1 层 latent，8 channels x 16 mel = 128 维 |
-| 设计目的 | 区分语音内容 | 压缩和重建音频信号 |
+
+|      | wav2vec2                            | LTX-2 Audio VAE                                            |
+| ---- | ----------------------------------- | ---------------------------------------------------------- |
+| 训练目标 | 自监督语音表征学习（对比学习 + masked prediction） | **audio reconstruction**（VAE：encode -> decode -> 重建 mel 谱） |
+| 特征含义 | 音素、韵律、语义（12 层金字塔）                   | 声学纹理/音色（压缩码，用于重建）                                          |
+| 层数   | 12 层，每层 768 维                       | 1 层 latent，8 channels x 16 mel = 128 维                     |
+| 设计目的 | 区分语音内容                              | 压缩和重建音频信号                                                  |
+
 
 wav2vec 的 12 层堆叠是 Hallo 系列的刻意设计（见 [Hallo2 论文](https://arxiv.org/html/2410.07718)）：
+
 - 底层（1-4）：声学/音素特征 -> 嘴巴张合的物理信号
 - 中层（5-8）：音节/韵律特征 -> 节奏、重音
 - 高层（9-12）：语义特征 -> 词义上下文
 
 LTX-2 VAE 的 latent 是为了**重建 mel 谱**设计的，不保证保留口型驱动所需的音素级时序信息。
+
+**VAE（Variational Autoencoder）** 由两部分组成：
+
+1. **Encoder** — 把原始音频（高维的 waveform 或 spectrogram）压缩成一个低维的 **latent representation**（潜在表示），也就是一组紧凑的数字向量。
+2. **Decoder** — 再从这个 latent representation 还原回音频信号。
+
+所谓"用 encoder 做 audio reconstruction"，就是：
+
+> 把一段真实音频喂进 encoder → 得到 latent code → 再通过 decoder 重建出音频 → 和原始音频对比，看还原得多好。
+
+这个过程的核心目的是验证 VAE 的 **reconstruction fidelity**（重建保真度）——如果重建出来的音频和原始音频听起来几乎一样，说明 encoder 学到的 latent space 保留了足够的音频信息，没有丢失关键细节。
 
 ### 2.3 预训练权重丢失
 
@@ -58,6 +76,7 @@ LTX-2 VAE 的 latent 是为了**重建 mel 谱**设计的，不保证保留口�
 ### 2.4 LTX-2 内部的 audio 使用方式与 Hallo3 完全不同
 
 在 LTX-2 自身的架构里（[LTX-2 论文](https://arxiv.org/pdf/2601.03233)）：
+
 - audio latent 作为**平行 token 序列**和 video latent 一起处理
 - 每一层都做 **双向 cross-attention（audio <-> video）**
 - audio latent 直接保持 (B, T, C) 的序列形式，不做 flatten
@@ -66,7 +85,11 @@ LTX-2 VAE 的 latent 是为了**重建 mel 谱**设计的，不保证保留口�
 
 ---
 
+
+
 ## 三、文献支撑
+
+
 
 ### 3.1 音频编码器的预训练目标决定适配性
 
@@ -88,7 +111,11 @@ LTX-2 VAE 的 latent 是为了**重建 mel 谱**设计的，不保证保留口�
 
 ---
 
+
+
 ## 四、改进方案
+
+
 
 ### 方案 A：加 Expansion MLP（最小改动，优先尝试）
 
@@ -151,15 +178,19 @@ class AudioFeatureEnhancer(torch.nn.Module):
 
 ### 方案对比
 
-| | 方案 A (Expansion MLP) | 方案 B (Transformer) |
-|---|---|---|
-| 改动量 | 小，只改 AudioProjModel | 中等，加新模块 + 改数据流 |
-| 新增参数 | ~540 万 | ~1900 万 |
-| 能力 | 扩展维度，无跨帧上下文 | 维度 + 跨帧时序上下文 |
-| 风险 | 低 | 需调学习率，可能需更多训练步数 |
-| 建议 | **先试这个** | 方案 A 有效后再升级 |
+
+|      | 方案 A (Expansion MLP) | 方案 B (Transformer) |
+| ---- | -------------------- | ------------------ |
+| 改动量  | 小，只改 AudioProjModel  | 中等，加新模块 + 改数据流     |
+| 新增参数 | ~540 万               | ~1900 万            |
+| 能力   | 扩展维度，无跨帧上下文          | 维度 + 跨帧时序上下文       |
+| 风险   | 低                    | 需调学习率，可能需更多训练步数    |
+| 建议   | **先试这个**             | 方案 A 有效后再升级        |
+
 
 ---
+
+
 
 ## 五、实验计划
 
@@ -170,12 +201,17 @@ class AudioFeatureEnhancer(torch.nn.Module):
 
 ---
 
+
+
 ## 六、关键代码位置
 
-| 文件 | 行号 | 内容 |
-|------|------|------|
-| `hallo3/sgm/models/transformer.py` | 348-433 | AudioProjModel 定义（需修改） |
-| `hallo3/sgm/utils/ltx_audio_processor.py` | 1-105 | LTX-2 VAE 音频处理 |
-| `hallo3/sgm/models/ltx_audio_vae/audio_vae.py` | 56-224 | AudioEncoder VAE 实现 |
-| `hallo3/dit_video_concat.py` | 576-587 | Cross-attention 注入点 |
-| `hallo3/train_video.py` | 8-67 | Checkpoint 加载 monkey-patch |
+
+| 文件                                             | 行号      | 内容                         |
+| ---------------------------------------------- | ------- | -------------------------- |
+| `hallo3/sgm/models/transformer.py`             | 348-433 | AudioProjModel 定义（需修改）     |
+| `hallo3/sgm/utils/ltx_audio_processor.py`      | 1-105   | LTX-2 VAE 音频处理             |
+| `hallo3/sgm/models/ltx_audio_vae/audio_vae.py` | 56-224  | AudioEncoder VAE 实现        |
+| `hallo3/dit_video_concat.py`                   | 576-587 | Cross-attention 注入点        |
+| `hallo3/train_video.py`                        | 8-67    | Checkpoint 加载 monkey-patch |
+
+
