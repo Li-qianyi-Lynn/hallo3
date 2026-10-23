@@ -349,8 +349,8 @@ class AudioProjModel(torch.nn.Module):
     def __init__(
         self,
         seq_len=5,
-        blocks=1,  # LTX-2 VAE: single latent layer (was 12 for wav2vec)
-        channels=128,  # LTX-2 VAE: 8ch × 16mel = 128 (was 768 for wav2vec)
+        blocks=12,  # Omnilingual wav2vec2: use 12 out of 24+ transformer layers
+        channels=768,  # keep original dim; adapter (1024→768) handles Omnilingual's wider features
         intermediate_dim=512,
         output_dim=768,
         context_tokens=32

@@ -128,10 +128,16 @@ class AudioProcessor:
             audio_emb = embeddings.last_hidden_state.squeeze()
             print(f"[AUDIO_DEBUG]   only_last_features=True: audio_emb shape={audio_emb.shape}")
         else:
-            audio_emb = torch.stack(embeddings.hidden_states[1:], dim=1).squeeze(0)
-            print(f"[AUDIO_DEBUG]   stack hidden_states[1:] (共{len(embeddings.hidden_states)-1}层): shape={audio_emb.shape}")
+            # MMS/Omnilingual has 24 transformer layers (25 hidden states including embedding).
+            # Take the last 12 layers to match AudioProjModel(blocks=12).
+            all_hidden = embeddings.hidden_states[1:]  # skip embedding layer
+            num_layers = len(all_hidden)
+            use_layers = 12
+            selected = all_hidden[num_layers - use_layers:]  # last 12 layers
+            audio_emb = torch.stack(selected, dim=1).squeeze(0)
+            print(f"[AUDIO_DEBUG]   stack hidden_states (last {use_layers} of {num_layers} layers): shape={audio_emb.shape}")
             audio_emb = rearrange(audio_emb, "b s d -> s b d")
-            print(f"[AUDIO_DEBUG]   rearrange 后: shape={audio_emb.shape}  (T, 12, 768)")
+            print(f"[AUDIO_DEBUG]   rearrange 后: shape={audio_emb.shape}  (T, {use_layers}, dim)")
 
         audio_emb = audio_emb.cpu().detach()
         print(f"[AUDIO_DEBUG]   ★ preprocess 最终输出: audio_emb shape={audio_emb.shape}, audio_length={audio_length}")
@@ -174,11 +180,14 @@ class AudioProcessor:
             audio_emb = embeddings.last_hidden_state.squeeze()
             print(f"[AUDIO_DEBUG]   only_last_features=True: audio_emb shape={audio_emb.shape}")
         else:
-            audio_emb = torch.stack(
-                embeddings.hidden_states[1:], dim=1).squeeze(0)
-            print(f"[AUDIO_DEBUG]   stack hidden_states[1:] (共{len(embeddings.hidden_states)-1}层): shape={audio_emb.shape}")
+            all_hidden = embeddings.hidden_states[1:]
+            num_layers = len(all_hidden)
+            use_layers = 12
+            selected = all_hidden[num_layers - use_layers:]
+            audio_emb = torch.stack(selected, dim=1).squeeze(0)
+            print(f"[AUDIO_DEBUG]   stack hidden_states (last {use_layers} of {num_layers} layers): shape={audio_emb.shape}")
             audio_emb = rearrange(audio_emb, "b s d -> s b d")
-            print(f"[AUDIO_DEBUG]   rearrange 后: shape={audio_emb.shape}  (T, 12, 768)")
+            print(f"[AUDIO_DEBUG]   rearrange 后: shape={audio_emb.shape}  (T, {use_layers}, dim)")
 
         audio_emb = audio_emb.cpu().detach()
         print(f"[AUDIO_DEBUG]   ★ get_embedding 最终输出: audio_emb shape={audio_emb.shape}")

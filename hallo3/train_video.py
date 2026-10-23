@@ -17,9 +17,8 @@ from sat import mpu              # SAT 库：管理"模型并行"的进程组
 from sat.training.deepspeed_training import training_main  # DeepSpeed 训练主循环
 import sat.training.model_io as sat_model_io
 
-# Monkey-patch SAT's load_checkpoint to skip shape-mismatched keys.
-# Needed because LTX-2 VAE's AudioProjModel has different dimensions (640 vs 46080)
-# and the pretrained checkpoint has the old wav2vec dimensions.
+# Monkey-patch SAT's load_checkpoint to handle torch>=2.6 weights_only default
+# and skip shape-mismatched keys when encoder dimensions differ from checkpoint.
 _orig_load_checkpoint = sat_model_io.load_checkpoint
 
 def _patched_load_checkpoint(model, args, *a, **kw):

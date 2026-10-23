@@ -157,3 +157,20 @@ def forward(self, audio_embeds):
 | `sgm/models/transformer.py` | AudioProjModel 加 `encoder_channels` 参数和 adapter 层，`channels` 恢复为 768 |
 | `sgm/utils/audio_processor.py` | hidden states 取法：取最后 12 层，保持 1024 维不降维（adapter 在模型里做） |
 | `train_video.py` | monkey-patch 可简化：只需处理 adapter 的新 key（missing key），不再有 shape mismatch |
+
+---
+
+## 六、Summary: root causes of poor training & solution
+
+### Root Cause 1: wrong encoder type (fundamental mismatch)
+
+Hallo3's design requires an encoder that can **discriminate speech content** (/a/ vs /m/ → mouth open vs closed). wav2vec's contrastive learning objective naturally satisfies this. LTX-2 VAE's training objective is **audio reconstruction** — it preserves acoustic texture (timbre, pitch) but does not guarantee phoneme-level discriminability. Even if proj1 were perfectly trained, the input simply lacks sufficient lip-sync information to extract.
+
+### Root Cause 2: pretrained weight loss (compounding the problem)
+
+`proj1.weight` was skipped due to shape mismatch (512×46080 vs 512×640), falling back to random initialization. The learned projection patterns from Hallo3's large-scale pretraining — which layers, which frames, which dimensions matter most for lip-sync — were entirely lost. 7000 steps + 2702 samples is insufficient to relearn these patterns from scratch.
+
+### Solution
+
+1. **Replace encoder**: Omnilingual wav2vec2 (2025.11, 1600+ languages, self-supervised speech representation, same architecture family as the original wav2vec)
+2. **Add adapter layer**: `Linear(1024, 768)` for dimensionality adaptation, keeping proj1's shape at (512, 46080) so pretrained weights load with zero mismatch. Only the adapter's ~790K parameters are randomly initialized, instead of proj1's ~24M parameters
