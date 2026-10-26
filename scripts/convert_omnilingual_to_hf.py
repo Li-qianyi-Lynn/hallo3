@@ -70,9 +70,8 @@ def convert_key(fairseq2_key):
             return None
 
     for pattern, replacement in FAIRSEQ2_TO_HF:
-        new_key = re.sub(pattern, replacement, fairseq2_key)
-        if new_key != fairseq2_key:
-            return new_key
+        if re.search(pattern, fairseq2_key):
+            return re.sub(pattern, replacement, fairseq2_key)
 
     return "__UNMAPPED__"
 
