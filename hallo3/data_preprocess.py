@@ -115,7 +115,11 @@ def process_all_videos(input_video_list: List[Path], output_dir: Path) -> None:
     face_analysis_model_path = "pretrained_models/face_analysis"
     landmark_model_path = "pretrained_models/face_analysis/models/face_landmarker_v2_with_blendshapes.task"
     audio_separator_model_file = "pretrained_models/audio_separator/Kim_Vocal_2.onnx"
-    wav2vec_model_path = 'pretrained_models/wav2vec/wav2vec2-base-960h'
+    # Omnilingual wav2vec2 for multilingual support; falls back to original if not found
+    wav2vec_model_path = os.environ.get(
+        'WAV2VEC_MODEL_PATH',
+        'pretrained_models/wav2vec/wav2vec2-base-960h'
+    )
 
     audio_processor = AudioProcessor(
         16000,

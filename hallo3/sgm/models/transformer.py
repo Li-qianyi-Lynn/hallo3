@@ -349,8 +349,9 @@ class AudioProjModel(torch.nn.Module):
     def __init__(
         self,
         seq_len=5,
-        blocks=12,  # Omnilingual wav2vec2: use 12 out of 24+ transformer layers
-        channels=768,  # keep original dim; adapter (1024→768) handles Omnilingual's wider features
+        blocks=12,  # number of transformer layers to use
+        channels=768,  # original wav2vec2-base dim; proj1 pretrained weights expect this
+        encoder_channels=1024,  # actual encoder output dim (Omnilingual/MMS: 1024)
         intermediate_dim=512,
         output_dim=768,
         context_tokens=32
@@ -367,13 +368,20 @@ class AudioProjModel(torch.nn.Module):
         self.context_tokens = context_tokens
         self.output_dim = output_dim
 
+        # Adapter: map encoder's wider features to original dim so proj1 weights load cleanly.
+        # Only ~790K params are randomly initialized; proj1/proj2/proj3 all keep pretrained weights.
+        if encoder_channels != channels:
+            self.adapter = torch.nn.Linear(encoder_channels, channels)
+        else:
+            self.adapter = None
+
         # define multiple linear layers
         self.proj1 = torch.nn.Linear(self.input_dim, intermediate_dim)
         self.proj2 = torch.nn.Linear(intermediate_dim, intermediate_dim)
         self.proj3 = torch.nn.Linear(intermediate_dim, context_tokens * output_dim)
 
         self.norm = torch.nn.LayerNorm(output_dim)
-        
+
         self.conv1 = torch.nn.Conv1d(in_channels=context_tokens * output_dim,
                                      out_channels=context_tokens * output_dim,
                                      kernel_size=2,
@@ -387,6 +395,13 @@ class AudioProjModel(torch.nn.Module):
         _audio_debug(f"[AUDIO_DEBUG]   模型参数: intermediate_dim={self.intermediate_dim}, context_tokens={self.context_tokens}, output_dim={self.output_dim}")
 
         video_length = audio_embeds.shape[1]
+
+        # Adapter: (B, F, 5, 12, 1024) → (B, F, 5, 12, 768) before flatten
+        if self.adapter is not None:
+            _audio_debug(f"[AUDIO_DEBUG]   adapter 前: shape={audio_embeds.shape}")
+            audio_embeds = self.adapter(audio_embeds)
+            _audio_debug(f"[AUDIO_DEBUG]   adapter 后: shape={audio_embeds.shape}")
+
         audio_embeds = rearrange(audio_embeds, "bz f w b c -> (bz f) w b c")
         _audio_debug(f"[AUDIO_DEBUG]   rearrange 后 (bz*f, w, b, c): shape={audio_embeds.shape}")
 
@@ -762,7 +777,7 @@ class BaseTransformer(torch.nn.Module):
             self.final_layernorm = layernorm(hidden_size, eps=layernorm_epsilon)
         
         if add_audio_module:
-            self.audio_proj = AudioProjModel()
+            self.audio_proj = AudioProjModel(encoder_channels=1024)
         self.face_proj = FaceProjModel(hidden_size=1024)
 
 
