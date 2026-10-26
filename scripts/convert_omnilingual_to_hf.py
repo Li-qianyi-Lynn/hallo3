@@ -21,41 +21,41 @@ from transformers import Wav2Vec2Config, Wav2Vec2Model, Wav2Vec2FeatureExtractor
 FAIRSEQ2_TO_HF = [
     # Feature extractor conv layers (7 layers, layer_norm for all)
     (r"^encoder_frontend\.feature_extractor\.layers\.(\d+)\.conv\.",
-     r"wav2vec2.feature_extractor.conv_layers.\1.conv."),
+     r"feature_extractor.conv_layers.\1.conv."),
     (r"^encoder_frontend\.feature_extractor\.layers\.(\d+)\.layer_norm\.",
-     r"wav2vec2.feature_extractor.conv_layers.\1.layer_norm."),
+     r"feature_extractor.conv_layers.\1.layer_norm."),
     # Feature projection
     (r"^encoder_frontend\.post_extract_layer_norm\.",
-     r"wav2vec2.feature_projection.layer_norm."),
+     r"feature_projection.layer_norm."),
     (r"^encoder_frontend\.model_dim_proj\.",
-     r"wav2vec2.feature_projection.projection."),
+     r"feature_projection.projection."),
     # Positional conv embedding (weight-normalized)
     (r"^encoder_frontend\.pos_encoder\.conv\.",
-     r"wav2vec2.encoder.pos_conv_embed.conv."),
+     r"encoder.pos_conv_embed.conv."),
     # Encoder layer norm
     (r"^encoder\.layer_norm\.",
-     r"wav2vec2.encoder.layer_norm."),
+     r"encoder.layer_norm."),
     # Self-attention
     (r"^encoder\.layers\.(\d+)\.self_attn\.k_proj\.",
-     r"wav2vec2.encoder.layers.\1.attention.k_proj."),
+     r"encoder.layers.\1.attention.k_proj."),
     (r"^encoder\.layers\.(\d+)\.self_attn\.v_proj\.",
-     r"wav2vec2.encoder.layers.\1.attention.v_proj."),
+     r"encoder.layers.\1.attention.v_proj."),
     (r"^encoder\.layers\.(\d+)\.self_attn\.q_proj\.",
-     r"wav2vec2.encoder.layers.\1.attention.q_proj."),
+     r"encoder.layers.\1.attention.q_proj."),
     (r"^encoder\.layers\.(\d+)\.self_attn\.output_proj\.",
-     r"wav2vec2.encoder.layers.\1.attention.out_proj."),
+     r"encoder.layers.\1.attention.out_proj."),
     (r"^encoder\.layers\.(\d+)\.self_attn_layer_norm\.",
-     r"wav2vec2.encoder.layers.\1.layer_norm."),
+     r"encoder.layers.\1.layer_norm."),
     # FFN
     (r"^encoder\.layers\.(\d+)\.ffn\.inner_proj\.",
-     r"wav2vec2.encoder.layers.\1.feed_forward.intermediate_dense."),
+     r"encoder.layers.\1.feed_forward.intermediate_dense."),
     (r"^encoder\.layers\.(\d+)\.ffn\.output_proj\.",
-     r"wav2vec2.encoder.layers.\1.feed_forward.output_dense."),
+     r"encoder.layers.\1.feed_forward.output_dense."),
     (r"^encoder\.layers\.(\d+)\.ffn_layer_norm\.",
-     r"wav2vec2.encoder.layers.\1.final_layer_norm."),
+     r"encoder.layers.\1.final_layer_norm."),
     # Masking
     (r"^masker\.temporal_mask_embed$",
-     r"wav2vec2.masked_spec_embed"),
+     r"masked_spec_embed"),
 ]
 
 # These keys are for pre-training (quantizer, projections) -- not needed for
