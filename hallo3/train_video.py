@@ -55,6 +55,17 @@ def _patched_load_checkpoint(model, args, *a, **kw):
     finally:
         _torch.nn.Module.load_state_dict = _orig_load_state_dict
         _torch.load = _orig_torch_load
+
+    # DeepSpeed multi-GPU broadcast requires all parameters to be contiguous.
+    # Checkpoint loading can leave some tensors non-contiguous (memory-mapped views).
+    n_fixed = 0
+    for p in model.parameters():
+        if not p.data.is_contiguous():
+            p.data = p.data.contiguous()
+            n_fixed += 1
+    if n_fixed:
+        print(f"[load_checkpoint] Made {n_fixed} parameters contiguous for DeepSpeed broadcast")
+
     return result
 
 sat_model_io.load_checkpoint = _patched_load_checkpoint
