@@ -388,6 +388,10 @@ class AudioProjModel(torch.nn.Module):
                                      stride=2,
                                      padding=0)
 
+        # Ensure all parameters are contiguous for DeepSpeed multi-GPU broadcast
+        for p in self.parameters():
+            p.data = p.data.contiguous()
+
     def forward(self, audio_embeds):
         # merge
         _audio_debug(f"[AUDIO_DEBUG] AudioProjModel.forward(): 输入 audio_embeds shape={audio_embeds.shape}, dtype={audio_embeds.dtype}")
