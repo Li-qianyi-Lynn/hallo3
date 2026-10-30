@@ -58,13 +58,12 @@ def main():
         face_emb_path = os.path.join(data_dir, "face_emb", f"{stem}.pt")
         face_mask_path = os.path.join(data_dir, "face_mask", f"{stem}.png")
 
-        # Check required files exist
-        if not os.path.exists(face_emb_path):
+        # Check video exists (audio can be .wav, .m4a, etc.)
+        if not os.path.exists(video_path):
             skipped += 1
             continue
 
-        # audio_emb will be re-extracted, use placeholder path for now
-        # (re_extract_audio_emb.py will fill this in)
+        # audio_emb will be re-extracted by re_extract_audio_emb.py
         audio_emb_path = os.path.join(data_dir, "audio_emb_omnilingual", f"{stem}.pt")
 
         caption = item.get("description", "A person talking.")
