@@ -31,10 +31,42 @@
 - 预处理文件还在 (`audio_emb/`, `images/`, `face_emb/`, `face_mask/`)，因为训练时被访问过所以时间戳刷新了
 - 推理需要原始音频文件（`.m4a` 或 `.wav`），preprocess 后的 `.pt` 不够
 
-## 需要做的
+## 已恢复数据（2026-10-29）
 
-- [ ] 恢复 val200 对应的 200 条原始音频文件（从硬盘传或重新下载 TalkVid）
-- [ ] 恢复后重新跑 B1 推理
+音频和视频数据已重新导入到 `/scratch/li_qiany_neu/talkvid_8k/`（4000+ 条，从 8k 筛选出来的）。
+
+## B1 推理命令
+
+```bash
+cd ~/hallo3_orig
+conda activate hallo3
+
+WORLD_SIZE=1 RANK=0 LOCAL_RANK=0 LOCAL_WORLD_SIZE=1 \
+python hallo3/sample_video.py \
+  --base ./configs/cogvideox_5b_i2v_s2.yaml ./configs/inference.yaml \
+  --seed 42 \
+  --input-file ~/hallo3/my_inference/input_val200.txt \
+  --output-dir /scratch/li_qiany_neu/infer_out/orig_hallo3_val200
+```
+
+- 代码: `~/hallo3_orig`（main 分支 worktree，不需要 git checkout）
+- 断点续跑: `sample_video.py` 已加 skip 逻辑，检测 `000000_with_audio.mp4` 存在则跳过
+- 输出: `/scratch/li_qiany_neu/infer_out/orig_hallo3_val200/<clip_name>/000000_with_audio.mp4`
+
+### 查看进度
+
+```bash
+# 已完成多少条
+ls /scratch/li_qiany_neu/infer_out/orig_hallo3_val200/*/000000_with_audio.mp4 2>/dev/null | wc -l
+
+# 剩余
+echo "剩余: $((200 - $(ls /scratch/li_qiany_neu/infer_out/orig_hallo3_val200/*/000000_with_audio.mp4 2>/dev/null | wc -l))) 条"
+```
+
+## 还需要做的
+
+- [ ] B1 推理跑完 200 条
+- [ ] 跑 SyncNet 打分
 - [ ] 以后重要数据放 `/work/` 或定期 `touch` scratch 文件防清除
 
 ## Pretrained Models 状态
@@ -47,3 +79,21 @@
 | Audio separator | `pretrained_models/audio_separator/` | ✅ (symlink → scratch) |
 | CogVideoX VAE | `pretrained_models/cogvideox-5b-i2v-sat/vae/3d-vae.pt` | ✅ 已加载 |
 | T5 text encoder | `pretrained_models/google/t5-v1_1-xxl/` | 未确认 |
+
+
+Step 1 有自动跳过已处理的逻辑（检查 images/ 目录是否已有 jpg）。中断后重新跑同一命令就行，已完成的会自动
+  skip。                                                                                                           
+                    
+  到时候重新申请节点后：                                                                                            
+                                                                                                                    
+  srun --partition=rtx-devel --nodes=1 --gpus=1 --cpus-per-task=8 --mem=128G --time=02:00:00                        
+  --account=p2026_0014_neu --pty bash                                                                               
+                                                                                                                    
+  module load cuda/13.1.1                                                                                           
+  export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH                                                       
+  conda activate hallo3                                                                                             
+  cd ~/hallo3/hallo3                                                                                                
+                                                                                                                    
+  python ../scripts/process_4k_data.py --data_dir /scratch/li_qiany_neu/talkvid_8k --skip_steps 3,5                 
+                                                                                                                    
+  会看到之前完成的显示 skip=xxx，然后继续处理剩余的。 

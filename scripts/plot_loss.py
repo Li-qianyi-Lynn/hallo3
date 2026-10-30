@@ -16,6 +16,7 @@ from pathlib import Path
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--log_dir", default="/scratch/li_qiany_neu/hallo3_logs")
+    p.add_argument("--log_prefix", default="train_4k", help="log 文件前缀，如 train_4k 或 train_g1")
     p.add_argument("--out", default="loss_curve.png")
     p.add_argument("--smooth", type=int, default=50, help="滑动平均窗口大小")
     return p.parse_args()
@@ -49,9 +50,9 @@ def main():
     args = parse_args()
     log_dir = Path(args.log_dir)
 
-    logs = sorted(log_dir.glob("train_4k*.log"))
+    logs = sorted(log_dir.glob(f"{args.log_prefix}*.log"))
     if not logs:
-        print(f"没找到 log 文件：{log_dir}/train_4k*.log")
+        print(f"没找到 log 文件：{log_dir}/{args.log_prefix}*.log")
         sys.exit(1)
 
     print(f"找到 {len(logs)} 个 log 文件：")
