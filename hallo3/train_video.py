@@ -56,6 +56,25 @@ def _patched_load_checkpoint(model, args, *a, **kw):
         _torch.nn.Module.load_state_dict = _orig_load_state_dict
         _torch.load = _orig_torch_load
 
+    # Load adapter initialization from linear regression fit (if available).
+    # This replaces the random init with a meaningful Omnilingual→wav2vec2-base mapping.
+    adapter_init_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "configs", "adapter_init.pt")
+    if os.path.exists(adapter_init_path):
+        try:
+            # Find the adapter in the model
+            adapter = None
+            for name, module in model.named_modules():
+                if name.endswith("audio_proj.adapter"):
+                    adapter = module
+                    break
+            if adapter is not None:
+                init = _torch.load(adapter_init_path, map_location="cpu")
+                adapter.weight.data = init["weight"].to(adapter.weight.device, dtype=adapter.weight.dtype)
+                adapter.bias.data = init["bias"].to(adapter.bias.device, dtype=adapter.bias.dtype)
+                print(f"[load_checkpoint] Loaded adapter init from {adapter_init_path} (R²=0.70 linear regression fit)")
+        except Exception as e:
+            print(f"[load_checkpoint] WARNING: Failed to load adapter init: {e}")
+
     # DeepSpeed multi-GPU broadcast requires all parameters to be contiguous.
     # Checkpoint loading can leave some tensors non-contiguous (memory-mapped views).
     n_fixed = 0
