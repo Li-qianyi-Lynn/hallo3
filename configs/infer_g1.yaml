@@ -1,0 +1,3 @@
+args:
+  load: /scratch/li_qiany_neu/train_output_g1/train-g1-omnilingual-adapter-10-30-12-49
+  wav2vec_model_path: /scratch/li_qiany_neu/pretrained_models/omnilingual-w2v2-300m

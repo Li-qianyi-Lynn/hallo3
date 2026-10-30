@@ -81,19 +81,4 @@ echo "剩余: $((200 - $(ls /scratch/li_qiany_neu/infer_out/orig_hallo3_val200/*
 | T5 text encoder | `pretrained_models/google/t5-v1_1-xxl/` | 未确认 |
 
 
-Step 1 有自动跳过已处理的逻辑（检查 images/ 目录是否已有 jpg）。中断后重新跑同一命令就行，已完成的会自动
-  skip。                                                                                                           
-                    
-  到时候重新申请节点后：                                                                                            
-                                                                                                                    
-  srun --partition=rtx-devel --nodes=1 --gpus=1 --cpus-per-task=8 --mem=128G --time=02:00:00                        
-  --account=p2026_0014_neu --pty bash                                                                               
-                                                                                                                    
-  module load cuda/13.1.1                                                                                           
-  export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH                                                       
-  conda activate hallo3                                                                                             
-  cd ~/hallo3/hallo3                                                                                                
-                                                                                                                    
-  python ../scripts/process_4k_data.py --data_dir /scratch/li_qiany_neu/talkvid_8k --skip_steps 3,5                 
-                                                                                                                    
-  会看到之前完成的显示 skip=xxx，然后继续处理剩余的。 
+
