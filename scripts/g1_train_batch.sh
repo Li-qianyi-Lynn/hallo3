@@ -5,7 +5,7 @@
 #SBATCH --gpus=2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=256G
-#SBATCH --time=24:00:00
+#SBATCH --time=04:00:00
 #SBATCH --account=p2026_0014_neu
 #SBATCH --output=/scratch/li_qiany_neu/hallo3_logs/g1_train_%j.log
 #SBATCH --error=/scratch/li_qiany_neu/hallo3_logs/g1_train_%j.log
